@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   version="1.1"
+   id="svg1"
+   width="1629"
+   height="640"
+   viewBox="0 0 1629 640"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1">
+    <linearGradient
+       id="linearGradient2">
+      <stop
+         style="stop-color:#000000;stop-opacity:1;"
+         offset="0"
+         id="stop2" />
+      <stop
+         style="stop-color:#ffffff;stop-opacity:1;"
+         offset="1"
+         id="stop3" />
+    </linearGradient>
+    <linearGradient
+       id="linearGradient9">
+      <stop
+         style="stop-color:#80ff5c;stop-opacity:1;"
+         offset="0"
+         id="stop9" />
+      <stop
+         style="stop-color:#e437ff;stop-opacity:1;"
+         offset="0.99911404"
+         id="stop10" />
+    </linearGradient>
+    <linearGradient
+       xlink:href="#linearGradient9"
+       id="linearGradient10"
+       x1="50.442505"
+       y1="350.58081"
+       x2="1590.2655"
+       y2="350.58081"
+       gradientUnits="userSpaceOnUse" />
+    <linearGradient
+       xlink:href="#linearGradient2"
+       id="linearGradient3"
+       x1="49.820312"
+       y1="350.54721"
+       x2="1590.1133"
+       y2="350.54721"
+       gradientUnits="userSpaceOnUse" />
+  </defs>
+  <path
+     style="fill:url(#linearGradient10);fill-opacity:1"
+     d="m 50.442478,561.65192 321.238942,0.58997 c 56.38708,0.10956 77.05745,-6.16995 114.74926,-25.9587 L 1115.0442,249.85251 c 28.5844,-14.53139 48.382,-16.93829 74.9263,-17.10915 l 400.295,-1.17994 v -92.6451 l -382.135,0.41717 c -34.7874,-0.69755 -62.9761,1.02698 -102.4157,20.23285 L 476.41059,445.95702 c -32.87003,15.66566 -60.16165,24.9021 -93.23798,24.61316 H 50.477829 Z"
+     id="path8" />
+  <path
+     id="path6"
+     style="fill:url(#linearGradient3);fill-opacity:1"
+     d="m 437.44141,138.6582 -387.345707,0.89453 -0.275391,92.12891 H 435.50586 c 33.38322,-0.25637 50.73256,2.77367 75.28906,12.5332 L 701.04297,331.56836 805.98242,282.67188 533.16016,159.23242 C 502.72992,143.87049 483.96541,138.26172 437.44141,138.6582 Z M 939.5332,344.25391 835.65625,392.4375 1131.8496,526.76562 c 46.7836,23.20658 79.2137,36.30391 126.1934,35.66797 l 332.0703,-0.20703 -0.1485,-90.83203 -313.5664,-0.73828 c -29.8777,0.86924 -59.4895,-1.44077 -86.5625,-13.34961 z" />
+</svg>
