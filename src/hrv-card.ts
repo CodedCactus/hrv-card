@@ -54,8 +54,8 @@ private updateSvgColors() {
   const minTemp = Math.min(...temps);
   const maxTemp = Math.max(...temps);
 
-  // 🔥 enforce visible spread
-  const MIN_VISUAL_RANGE = 5; // °C (tune as needed)
+  // enforce visible spread
+  const MIN_VISUAL_RANGE = 1; // °C (tune as needed)
   const range = Math.max(maxTemp - minTemp, MIN_VISUAL_RANGE);
 
   // -------------------------
@@ -178,18 +178,18 @@ private updateSvgColors() {
 
     .label {
       position: absolute;
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
-      background: rgba(0,0,0,0.6);
+      // background: rgba(0,0,0,0.6);
       color: white;
       padding: 2px 6px;
       border-radius: 4px;
     }
 
-    .outdoor { top: 15%; left: 5%; }
-    .exhaust { bottom: 15%; left: 5%; }
-    .extract { top: 15%; right: 5%; }
-    .supply { bottom: 15%; right: 5%; }
+    .outdoor { top: 9%; left: 4%; }
+    .extract { top: 9%; right: 4%; }
+    .exhaust { bottom: 27%; left: 4%; }
+    .supply { bottom: 27%; right: 4%; }
 
     .delta {
       position: absolute;
