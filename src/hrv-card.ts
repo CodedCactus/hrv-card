@@ -33,7 +33,6 @@ class HRVCard extends LitElement {
   }
 
 private updateSvgColors() {
-  
   const svg = this.renderRoot.querySelector("svg");
   if (!svg) return;
 
@@ -42,74 +41,110 @@ private updateSvgColors() {
   // -------------------------
   const outdoor = this.getState(this.config.outdoor_temp);
   const supply = this.getState(this.config.supply_temp);
-
   const extract = this.getState(this.config.extract_temp);
   const exhaust = this.getState(this.config.exhaust_temp);
 
-  const temps = [outdoor, supply, extract, exhaust];
+  // -------------------------
+  // Create 4-point "flow gradients"
+  // (this is your original design restored)
+  // -------------------------
+  const lerp = (a: number, b: number, t: number) =>
+    a + (b - a) * t;
 
   // -------------------------
-  // Dynamic range
+  // Flow 1: outdoor → supply (TL → BR)
   // -------------------------
-  const minTemp = Math.min(...temps);
-  const maxTemp = Math.max(...temps);
-
-  // enforce visible spread
-  const MIN_VISUAL_RANGE = 1; // °C (tune as needed)
-  const range = Math.max(maxTemp - minTemp, MIN_VISUAL_RANGE);
-
-  // -------------------------
-  // Normalize (0 = cold, 1 = hot)
-  // -------------------------
-  const normalizeTemp = (t: number) => (t - minTemp) / range;
+  const path1Temps = [
+    supply,
+    lerp(supply, outdoor, 0.33),
+    lerp(supply, outdoor, 0.66),
+    outdoor
+  ];
 
   // -------------------------
-  // Blue → Red scale
+  // Flow 2: extract → exhaust (TR → BL)
+  // -------------------------
+  const path2Temps = [
+    exhaust,
+    lerp(exhaust, extract, 0.33),
+    lerp(exhaust, extract, 0.66),
+    extract
+  ];
+
+  const allTemps = [...path1Temps, ...path2Temps];
+
+  // -------------------------
+  // Shared normalization (important for correct color comparison)
+  // -------------------------
+  const minTemp = Math.min(...allTemps);
+  const maxTemp = Math.max(...allTemps);
+
+  const range = Math.max(maxTemp - minTemp, 1);
+
+  const normalize = (t: number) => (t - minTemp) / range;
+
+  // -------------------------
+  // Original blue → red mapping
   // -------------------------
   const tempToColor = (t: number) => {
-    const r = Math.round(255 * t);
-    const g = 0;
-    const b = Math.round(255 * (1 - t));
-    return `rgb(${r},${g},${b})`;
+    // anchor palette
+    const colors = [
+      [0, 0, 255],     // blue (T1)
+      [0, 255, 255],   // cyan (T2)
+      [255, 165, 0],   // orange (T3)
+      [255, 0, 0]      // red (T4)
+    ];
+
+    // clamp 0–1
+    t = Math.min(1, Math.max(0, t));
+
+    const segments = colors.length - 1;
+    const scaled = t * segments;
+
+    const i = Math.floor(scaled);
+    const f = scaled - i;
+
+    const a = colors[i];
+    const b = colors[Math.min(i + 1, segments)];
+
+    const lerp = (x: number, y: number) => Math.round(x + (y - x) * f);
+
+    const r = lerp(a[0], b[0]);
+    const g = lerp(a[1], b[1]);
+    const b2 = lerp(a[2], b[2]);
+
+    return `rgb(${r},${g},${b2})`;
   };
 
   // -------------------------
-  // Map temps
+  // Build 4-stop gradient
   // -------------------------
-  const outdoorT = normalizeTemp(outdoor);
-  const supplyT = normalizeTemp(supply);
-  const extractT = normalizeTemp(extract);
-  const exhaustT = normalizeTemp(exhaust);
+  const applyGradient = (id: string, temps: number[]) => {
+    const grad = svg.querySelector(`#${id}`) as SVGLinearGradientElement;
+    if (!grad) return;
 
-  // -------------------------
-  // Helper
-  // -------------------------
-  const setStop = (el: SVGStopElement, color: string) => {
-    el.style.stopColor = color;
-    el.style.stopOpacity = "1";
+    grad.innerHTML = "";
+
+    temps.forEach((t, i) => {
+      const stop = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "stop"
+      );
+
+      const offset = (i / (temps.length - 1)) * 100;
+
+      stop.setAttribute("offset", `${offset}%`);
+      stop.setAttribute("stop-color", tempToColor(normalize(t)));
+
+      grad.appendChild(stop);
+    });
   };
 
   // -------------------------
-  // Gradient 2: outdoor → supply
+  // Apply to SVG
   // -------------------------
-  const grad2 = svg.querySelector("#linearGradient2");
-  if (grad2) {
-    const stops = grad2.querySelectorAll("stop");
-
-    if (stops[0]) setStop(stops[0] as SVGStopElement, tempToColor(outdoorT));
-    if (stops[1]) setStop(stops[1] as SVGStopElement, tempToColor(supplyT));
-  }
-
-  // -------------------------
-  // Gradient 9: exhaust → extract
-  // -------------------------
-  const grad9 = svg.querySelector("#linearGradient9");
-  if (grad9) {
-    const stops = grad9.querySelectorAll("stop");
-
-    if (stops[0]) setStop(stops[0] as SVGStopElement, tempToColor(exhaustT));
-    if (stops[1]) setStop(stops[1] as SVGStopElement, tempToColor(extractT));
-  }
+  applyGradient("gradientPath1", path1Temps);
+  applyGradient("gradientPath2", path2Temps);
 }
 
   // -------------------------
