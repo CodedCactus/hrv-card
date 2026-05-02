@@ -3,15 +3,22 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     target: "es2020",
+    minify: "esbuild",
+    sourcemap: false,
+    cssCodeSplit: false,
+
     lib: {
       entry: "src/index.ts",
       formats: ["es"],
       fileName: () => "hrv-card.js"
     },
+
     rollupOptions: {
-      // Keep Lit external if you want smaller bundle
-      external: []
+      output: {
+        entryFileNames: "hrv-card.js"
+      }
     },
+
     outDir: "dist",
     emptyOutDir: true
   }

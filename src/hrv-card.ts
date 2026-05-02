@@ -3,11 +3,37 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import hrvSvg from "./assets/card.svg?raw";
 
 class HRVCard extends LitElement {
-  config: any;
+  static get properties() {
+    return {
+      hass: { type: Object },
+      config: { type: Object }
+    };
+  }
+
   hass: any;
+  config: any;
 
   setConfig(config: any) {
-    this.config = config;
+    if (!config || typeof config !== "object") {
+      throw new Error("Invalid card configuration");
+    }
+
+    if (
+      !config.outdoor_temp ||
+      !config.supply_temp ||
+      !config.extract_temp ||
+      !config.exhaust_temp
+    ) {
+      throw new Error(
+        "HRV Card requires outdoor_temp, supply_temp, extract_temp, and exhaust_temp"
+      );
+    }
+
+    this.config = { ...config };
+  }
+
+  getCardSize() {
+    return 3;
   }
 
   // -------------------------
@@ -55,10 +81,10 @@ private updateSvgColors() {
   // Flow 1: outdoor → supply (TL → BR)
   // -------------------------
   const path1Temps = [
-    supply,
-    lerp(supply, outdoor, 0.33),
-    lerp(supply, outdoor, 0.66),
-    outdoor
+    outdoor,
+    lerp(outdoor, supply, 0.33),
+    lerp(outdoor, supply, 0.66),
+    supply
   ];
 
   // -------------------------
@@ -79,7 +105,7 @@ private updateSvgColors() {
   const minTemp = Math.min(...allTemps);
   const maxTemp = Math.max(...allTemps);
 
-  const range = Math.max(maxTemp - minTemp, 1);
+  const range = Math.max(maxTemp - minTemp, 0.1);
 
   const normalize = (t: number) => (t - minTemp) / range;
 
@@ -87,12 +113,11 @@ private updateSvgColors() {
   // Original blue → red mapping
   // -------------------------
   const tempToColor = (t: number) => {
-    // anchor palette
     const colors = [
-      [0, 0, 255],     // blue (T1)
-      [0, 255, 255],   // cyan (T2)
-      [255, 165, 0],   // orange (T3)
-      [255, 0, 0]      // red (T4)
+      [59, 76, 192],    // cold
+      [120, 180, 220],  // cool
+      [245, 160, 105],  // warm
+      [180, 4, 38]      // hot
     ];
 
     // clamp 0–1
@@ -152,7 +177,9 @@ private updateSvgColors() {
   // -------------------------
 
   render() {
-    if (!this.hass || !this.config) return html``;
+    if (!this.hass || !this.config) {
+      return html``;
+    }
 
     const get = (e: string) => this.getState(e);
 
@@ -162,9 +189,10 @@ private updateSvgColors() {
     const exhaust = get(this.config.exhaust_temp);
 
     const delta = supply - outdoor;
+    const header = this.config.title || "HRV System";
 
     return html`
-      <ha-card header="HRV System">
+      <ha-card header="${header}">
         <div class="wrap">
 
           <!-- INLINE SVG -->
@@ -228,7 +256,7 @@ private updateSvgColors() {
 
     .delta {
       position: absolute;
-      top: 45%;
+      top: 30%;
       left: 50%;
       transform: translate(-50%, -50%);
       font-size: 14px;
