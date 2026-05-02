@@ -270,3 +270,15 @@ private updateSvgColors() {
 }
 
 customElements.define("hrv-card", HRVCard);
+
+if (!customElements.get("hrv-card")) {
+  customElements.define("hrv-card", HRVCard);
+}
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "hrv-card",
+  name: "HRV Card",
+  description: "Heat Recovery Ventilation visualization card",
+  preview: true
+});
