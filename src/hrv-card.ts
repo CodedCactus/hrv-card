@@ -1,5 +1,4 @@
 import { LitElement, html, css } from "lit";
-import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import hrvSvg from "./assets/card.svg?raw";
 
 class HRVCard extends LitElement {
@@ -12,6 +11,10 @@ class HRVCard extends LitElement {
 
   hass: any;
   config: any;
+
+  // -------------------------
+  // Config
+  // -------------------------
 
   setConfig(config: any) {
     if (!config || typeof config !== "object") {
@@ -61,35 +64,58 @@ class HRVCard extends LitElement {
   // -------------------------
 
   firstUpdated() {
+    const container = this.renderRoot.querySelector("#svgContainer");
+    if (container) {
+      container.innerHTML = hrvSvg;
+    }
+
     this.updateSvgColors();
   }
 
-  updated() {
-    this.updateSvgColors();
+  updated(changedProps: Map<string, any>) {
+    if (!changedProps.has("hass")) return;
+
+    const oldHass = changedProps.get("hass");
+    if (!oldHass) {
+      this.updateSvgColors();
+      return;
+    }
+
+    const entities = [
+      this.config.outdoor_temp,
+      this.config.supply_temp,
+      this.config.extract_temp,
+      this.config.exhaust_temp
+    ];
+
+    const hasChanged = entities.some((entity) => {
+      return (
+        oldHass.states[entity]?.state !==
+        this.hass.states[entity]?.state
+      );
+    });
+
+    if (hasChanged) {
+      this.updateSvgColors();
+    }
   }
+
+  // -------------------------
+  // SVG Coloring
+  // -------------------------
 
   private updateSvgColors() {
     const svg = this.renderRoot.querySelector("svg");
     if (!svg) return;
 
-    // -------------------------
-    // Read sensors
-    // -------------------------
     const outdoor = this.getState(this.config.outdoor_temp);
     const supply = this.getState(this.config.supply_temp);
     const extract = this.getState(this.config.extract_temp);
     const exhaust = this.getState(this.config.exhaust_temp);
 
-    // -------------------------
-    // Create 4-point "flow gradients"
-    // (this is your original design restored)
-    // -------------------------
     const lerp = (a: number, b: number, t: number) =>
       a + (b - a) * t;
 
-    // -------------------------
-    // Flow 1: outdoor → supply (TL → BR)
-    // -------------------------
     const path1Temps = [
       outdoor,
       lerp(outdoor, supply, 0.33),
@@ -97,9 +123,6 @@ class HRVCard extends LitElement {
       supply
     ];
 
-    // -------------------------
-    // Flow 2: extract → exhaust (TR → BL)
-    // -------------------------
     const path2Temps = [
       exhaust,
       lerp(exhaust, extract, 0.33),
@@ -109,28 +132,20 @@ class HRVCard extends LitElement {
 
     const allTemps = [...path1Temps, ...path2Temps];
 
-    // -------------------------
-    // Shared normalization (important for correct color comparison)
-    // -------------------------
     const minTemp = Math.min(...allTemps);
     const maxTemp = Math.max(...allTemps);
-
     const range = Math.max(maxTemp - minTemp, 0.1);
 
     const normalize = (t: number) => (t - minTemp) / range;
 
-    // -------------------------
-    // Original blue → red mapping
-    // -------------------------
     const tempToColor = (t: number) => {
       const colors = [
-        [59, 76, 192],    // cold
-        [120, 180, 220],  // cool
-        [245, 160, 105],  // warm
-        [180, 4, 38]      // hot
+        [59, 76, 192],
+        [120, 180, 220],
+        [245, 160, 105],
+        [180, 4, 38]
       ];
 
-      // clamp 0–1
       t = Math.min(1, Math.max(0, t));
 
       const segments = colors.length - 1;
@@ -142,18 +157,12 @@ class HRVCard extends LitElement {
       const a = colors[i];
       const b = colors[Math.min(i + 1, segments)];
 
-      const lerp = (x: number, y: number) => Math.round(x + (y - x) * f);
+      const lerp = (x: number, y: number) =>
+        Math.round(x + (y - x) * f);
 
-      const r = lerp(a[0], b[0]);
-      const g = lerp(a[1], b[1]);
-      const b2 = lerp(a[2], b[2]);
-
-      return `rgb(${r},${g},${b2})`;
+      return `rgb(${lerp(a[0], b[0])},${lerp(a[1], b[1])},${lerp(a[2], b[2])})`;
     };
 
-    // -------------------------
-    // Build 4-stop gradient
-    // -------------------------
     const applyGradient = (id: string, temps: number[]) => {
       const grad = svg.querySelector(`#${id}`) as SVGLinearGradientElement;
       if (!grad) return;
@@ -175,9 +184,6 @@ class HRVCard extends LitElement {
       });
     };
 
-    // -------------------------
-    // Apply to SVG
-    // -------------------------
     applyGradient("gradientPath1", path1Temps);
     applyGradient("gradientPath2", path2Temps);
   }
@@ -198,23 +204,27 @@ class HRVCard extends LitElement {
     const outdoor = get(this.config.outdoor_temp);
     const exhaust = get(this.config.exhaust_temp);
 
-    const header = this.config.title || "HRV System";
-
     return html`
-      <ha-card header="${header}">
+      <ha-card header="${this.config.title || "HRV System"}">
         <div class="wrap">
 
-          <!-- INLINE SVG -->
-          <div class="svg">
-            ${unsafeHTML(hrvSvg)}
-          </div>
+          <!-- SVG injected once -->
+          <div class="svg" id="svgContainer"></div>
 
-          <!-- OVERLAY VALUES -->
+          <!-- Overlay values -->
           <div class="overlay">
-            <div class="label outdoor" @click=${() => this.handleClick(this.config.outdoor_temp)}>${outdoor.toFixed(1)}°C</div>
-            <div class="label supply" @click=${() => this.handleClick(this.config.supply_temp)}>${supply.toFixed(1)}°C</div>
-            <div class="label extract" @click=${() => this.handleClick(this.config.extract_temp)}>${extract.toFixed(1)}°C</div>
-            <div class="label exhaust" @click=${() => this.handleClick(this.config.exhaust_temp)}>${exhaust.toFixed(1)}°C</div>
+            <div class="label outdoor" @click=${() => this.handleClick(this.config.outdoor_temp)}>
+              ${outdoor.toFixed(1)}°C
+            </div>
+            <div class="label supply" @click=${() => this.handleClick(this.config.supply_temp)}>
+              ${supply.toFixed(1)}°C
+            </div>
+            <div class="label extract" @click=${() => this.handleClick(this.config.extract_temp)}>
+              ${extract.toFixed(1)}°C
+            </div>
+            <div class="label exhaust" @click=${() => this.handleClick(this.config.exhaust_temp)}>
+              ${exhaust.toFixed(1)}°C
+            </div>
           </div>
 
         </div>
@@ -249,14 +259,13 @@ class HRVCard extends LitElement {
       position: absolute;
       font-size: 14px;
       font-weight: 600;
-      // background: rgba(0,0,0,0.6);
       color: white;
       padding: 2px 6px;
       border-radius: 4px;
     }
 
     .label:hover {
-      color: rgb(186, 186, 186)
+      color: rgb(186, 186, 186);
     }
 
     .outdoor { top: 9%; left: 4%; }
@@ -265,8 +274,6 @@ class HRVCard extends LitElement {
     .supply { bottom: 27%; right: 4%; }
   `;
 }
-
-customElements.define("hrv-card", HRVCard);
 
 if (!customElements.get("hrv-card")) {
   customElements.define("hrv-card", HRVCard);
