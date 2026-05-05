@@ -46,6 +46,16 @@ class HRVCard extends LitElement {
     return isNaN(num) ? 0 : num;
   }
 
+  private handleClick(entity: string) {
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", {
+        detail: { entityId: entity },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   // -------------------------
   // Lifecycle
   // -------------------------
@@ -58,119 +68,119 @@ class HRVCard extends LitElement {
     this.updateSvgColors();
   }
 
-private updateSvgColors() {
-  const svg = this.renderRoot.querySelector("svg");
-  if (!svg) return;
+  private updateSvgColors() {
+    const svg = this.renderRoot.querySelector("svg");
+    if (!svg) return;
 
-  // -------------------------
-  // Read sensors
-  // -------------------------
-  const outdoor = this.getState(this.config.outdoor_temp);
-  const supply = this.getState(this.config.supply_temp);
-  const extract = this.getState(this.config.extract_temp);
-  const exhaust = this.getState(this.config.exhaust_temp);
+    // -------------------------
+    // Read sensors
+    // -------------------------
+    const outdoor = this.getState(this.config.outdoor_temp);
+    const supply = this.getState(this.config.supply_temp);
+    const extract = this.getState(this.config.extract_temp);
+    const exhaust = this.getState(this.config.exhaust_temp);
 
-  // -------------------------
-  // Create 4-point "flow gradients"
-  // (this is your original design restored)
-  // -------------------------
-  const lerp = (a: number, b: number, t: number) =>
-    a + (b - a) * t;
+    // -------------------------
+    // Create 4-point "flow gradients"
+    // (this is your original design restored)
+    // -------------------------
+    const lerp = (a: number, b: number, t: number) =>
+      a + (b - a) * t;
 
-  // -------------------------
-  // Flow 1: outdoor → supply (TL → BR)
-  // -------------------------
-  const path1Temps = [
-    outdoor,
-    lerp(outdoor, supply, 0.33),
-    lerp(outdoor, supply, 0.66),
-    supply
-  ];
-
-  // -------------------------
-  // Flow 2: extract → exhaust (TR → BL)
-  // -------------------------
-  const path2Temps = [
-    exhaust,
-    lerp(exhaust, extract, 0.33),
-    lerp(exhaust, extract, 0.66),
-    extract
-  ];
-
-  const allTemps = [...path1Temps, ...path2Temps];
-
-  // -------------------------
-  // Shared normalization (important for correct color comparison)
-  // -------------------------
-  const minTemp = Math.min(...allTemps);
-  const maxTemp = Math.max(...allTemps);
-
-  const range = Math.max(maxTemp - minTemp, 0.1);
-
-  const normalize = (t: number) => (t - minTemp) / range;
-
-  // -------------------------
-  // Original blue → red mapping
-  // -------------------------
-  const tempToColor = (t: number) => {
-    const colors = [
-      [59, 76, 192],    // cold
-      [120, 180, 220],  // cool
-      [245, 160, 105],  // warm
-      [180, 4, 38]      // hot
+    // -------------------------
+    // Flow 1: outdoor → supply (TL → BR)
+    // -------------------------
+    const path1Temps = [
+      outdoor,
+      lerp(outdoor, supply, 0.33),
+      lerp(outdoor, supply, 0.66),
+      supply
     ];
 
-    // clamp 0–1
-    t = Math.min(1, Math.max(0, t));
+    // -------------------------
+    // Flow 2: extract → exhaust (TR → BL)
+    // -------------------------
+    const path2Temps = [
+      exhaust,
+      lerp(exhaust, extract, 0.33),
+      lerp(exhaust, extract, 0.66),
+      extract
+    ];
 
-    const segments = colors.length - 1;
-    const scaled = t * segments;
+    const allTemps = [...path1Temps, ...path2Temps];
 
-    const i = Math.floor(scaled);
-    const f = scaled - i;
+    // -------------------------
+    // Shared normalization (important for correct color comparison)
+    // -------------------------
+    const minTemp = Math.min(...allTemps);
+    const maxTemp = Math.max(...allTemps);
 
-    const a = colors[i];
-    const b = colors[Math.min(i + 1, segments)];
+    const range = Math.max(maxTemp - minTemp, 0.1);
 
-    const lerp = (x: number, y: number) => Math.round(x + (y - x) * f);
+    const normalize = (t: number) => (t - minTemp) / range;
 
-    const r = lerp(a[0], b[0]);
-    const g = lerp(a[1], b[1]);
-    const b2 = lerp(a[2], b[2]);
+    // -------------------------
+    // Original blue → red mapping
+    // -------------------------
+    const tempToColor = (t: number) => {
+      const colors = [
+        [59, 76, 192],    // cold
+        [120, 180, 220],  // cool
+        [245, 160, 105],  // warm
+        [180, 4, 38]      // hot
+      ];
 
-    return `rgb(${r},${g},${b2})`;
-  };
+      // clamp 0–1
+      t = Math.min(1, Math.max(0, t));
 
-  // -------------------------
-  // Build 4-stop gradient
-  // -------------------------
-  const applyGradient = (id: string, temps: number[]) => {
-    const grad = svg.querySelector(`#${id}`) as SVGLinearGradientElement;
-    if (!grad) return;
+      const segments = colors.length - 1;
+      const scaled = t * segments;
 
-    grad.innerHTML = "";
+      const i = Math.floor(scaled);
+      const f = scaled - i;
 
-    temps.forEach((t, i) => {
-      const stop = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "stop"
-      );
+      const a = colors[i];
+      const b = colors[Math.min(i + 1, segments)];
 
-      const offset = (i / (temps.length - 1)) * 100;
+      const lerp = (x: number, y: number) => Math.round(x + (y - x) * f);
 
-      stop.setAttribute("offset", `${offset}%`);
-      stop.setAttribute("stop-color", tempToColor(normalize(t)));
+      const r = lerp(a[0], b[0]);
+      const g = lerp(a[1], b[1]);
+      const b2 = lerp(a[2], b[2]);
 
-      grad.appendChild(stop);
-    });
-  };
+      return `rgb(${r},${g},${b2})`;
+    };
 
-  // -------------------------
-  // Apply to SVG
-  // -------------------------
-  applyGradient("gradientPath1", path1Temps);
-  applyGradient("gradientPath2", path2Temps);
-}
+    // -------------------------
+    // Build 4-stop gradient
+    // -------------------------
+    const applyGradient = (id: string, temps: number[]) => {
+      const grad = svg.querySelector(`#${id}`) as SVGLinearGradientElement;
+      if (!grad) return;
+
+      grad.innerHTML = "";
+
+      temps.forEach((t, i) => {
+        const stop = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "stop"
+        );
+
+        const offset = (i / (temps.length - 1)) * 100;
+
+        stop.setAttribute("offset", `${offset}%`);
+        stop.setAttribute("stop-color", tempToColor(normalize(t)));
+
+        grad.appendChild(stop);
+      });
+    };
+
+    // -------------------------
+    // Apply to SVG
+    // -------------------------
+    applyGradient("gradientPath1", path1Temps);
+    applyGradient("gradientPath2", path2Temps);
+  }
 
   // -------------------------
   // Render
@@ -202,10 +212,10 @@ private updateSvgColors() {
 
           <!-- OVERLAY VALUES -->
           <div class="overlay">
-            <div class="label outdoor">${outdoor.toFixed(1)}°C</div>
-            <div class="label supply">${supply.toFixed(1)}°C</div>
-            <div class="label extract">${extract.toFixed(1)}°C</div>
-            <div class="label exhaust">${exhaust.toFixed(1)}°C</div>
+            <div class="label outdoor" @click=${() => this.handleClick(this.config.outdoor_temp)}>${outdoor.toFixed(1)}°C</div>
+            <div class="label supply" @click=${() => this.handleClick(this.config.supply_temp)}>${supply.toFixed(1)}°C</div>
+            <div class="label extract" @click=${() => this.handleClick(this.config.extract_temp)}>${extract.toFixed(1)}°C</div>
+            <div class="label exhaust" @click=${() => this.handleClick(this.config.exhaust_temp)}>${exhaust.toFixed(1)}°C</div>
 
             <div class="delta">
               Δ ${delta.toFixed(1)}°C
@@ -240,6 +250,7 @@ private updateSvgColors() {
     }
 
     .label {
+      pointer-events: auto;
       position: absolute;
       font-size: 14px;
       font-weight: 600;
@@ -247,6 +258,10 @@ private updateSvgColors() {
       color: white;
       padding: 2px 6px;
       border-radius: 4px;
+    }
+
+    .label:hover {
+      color: rgb(186, 186, 186)
     }
 
     .outdoor { top: 9%; left: 4%; }
