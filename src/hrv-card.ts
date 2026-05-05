@@ -198,7 +198,6 @@ class HRVCard extends LitElement {
     const outdoor = get(this.config.outdoor_temp);
     const exhaust = get(this.config.exhaust_temp);
 
-    const delta = supply - outdoor;
     const header = this.config.title || "HRV System";
 
     return html`
@@ -216,10 +215,6 @@ class HRVCard extends LitElement {
             <div class="label supply" @click=${() => this.handleClick(this.config.supply_temp)}>${supply.toFixed(1)}°C</div>
             <div class="label extract" @click=${() => this.handleClick(this.config.extract_temp)}>${extract.toFixed(1)}°C</div>
             <div class="label exhaust" @click=${() => this.handleClick(this.config.exhaust_temp)}>${exhaust.toFixed(1)}°C</div>
-
-            <div class="delta">
-              Δ ${delta.toFixed(1)}°C
-            </div>
           </div>
 
         </div>
@@ -268,19 +263,6 @@ class HRVCard extends LitElement {
     .extract { top: 9%; right: 4%; }
     .exhaust { bottom: 27%; left: 4%; }
     .supply { bottom: 27%; right: 4%; }
-
-    .delta {
-      position: absolute;
-      top: 30%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      font-weight: bold;
-      background: rgba(0,0,0,0.75);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 6px;
-    }
   `;
 }
 
