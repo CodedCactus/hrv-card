@@ -7,13 +7,13 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 * 🌡️ Real-time HRV temperature visualization
 * 🎨 Dynamic color gradients (cold → warm flow mapping)
 * 🧭 Dual airflow paths (outdoor → supply, extract → exhaust)
-* 🧩 Built-in Lovelace UI editor (no YAML required)
+<!-- * 🧩 Built-in Lovelace UI editor (no YAML required) -->
 * 🏠 Native Home Assistant card integration
 * 📱 Responsive SVG-based visualization
 * ⚡ Lightweight and fast (Lit-based)
 
 ## 📸 Preview
-
+![Alt text](docs/preview.png "HRV Card")
 
 ## 📦 Installation
 
