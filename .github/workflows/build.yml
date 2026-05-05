@@ -1,9 +1,11 @@
-name: Build HRV Card
+name: Build and Publish HRV Card
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -27,32 +29,27 @@ jobs:
         run: npm run build
 
       - name: Upload build artifact
+        if: github.event_name == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: hrv-card
           path: dist/hrv-card.js
 
-  release:
+  publish:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'release'
 
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: hrv-card
-          path: dist
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/hrv-card.js
+      - name: Upload release asset
+        run: gh release upload ${{ github.event.release.tag_name }} hrv-card.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

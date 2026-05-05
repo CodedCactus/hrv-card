@@ -1,5 +1,7 @@
 # 🌀 HRV Card
 
+![Build Status](https://github.com/CodedCactus/hrv-card/workflows/Build%20and%20Publish%20HRV%20Card/badge.svg)
+
 A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation (HRV) systems with dynamic temperature flow gradients and a built-in UI editor.
 
 ## ✨ Features
