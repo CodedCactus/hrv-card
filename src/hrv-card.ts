@@ -485,9 +485,9 @@ class HRVCard extends LitElement {
     }
 
     /* ---- Sensor row ---- */
-
     .sensor-row {
       display: flex;
+      flex-wrap: wrap;
       flex-direction: row;
       gap: 8px;
       padding: 8px 12px 12px;
@@ -497,7 +497,11 @@ class HRVCard extends LitElement {
       display: flex;
       align-items: center;
       gap: 6px;
-      flex: 1;
+
+      flex: 0 1 auto;        
+      min-width: 60px;
+      max-width: 100%;
+
       padding: 6px 10px;
       border-radius: 8px;
       background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
