@@ -12,6 +12,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    outputs:
+      artifact-name: hrv-card
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,18 +25,21 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install dependencies (clean)
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Build project
         run: npm run build
 
       - name: Upload build artifact
-        if: github.event_name == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: hrv-card
           path: dist/hrv-card.js
+          if-no-files-found: error
 
   publish:
     needs: build
@@ -48,8 +54,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: hrv-card
+          path: dist
 
       - name: Upload release asset
-        run: gh release upload ${{ github.event.release.tag_name }} hrv-card.js
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/hrv-card.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
