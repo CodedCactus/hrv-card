@@ -16,6 +16,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write   # needed for release uploads
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,41 +74,15 @@ jobs:
         with:
           category: plugin
 
-      - name: Upload artifact (PR → 7d, branch → 14d, release → 90d)
-        uses: actions/upload-artifact@v4
-        with:
-          name: hrv-card-${{ steps.version.outputs.version }}
-          path: dist/hrv-card.js
-          if-no-files-found: error
-          retention-days: |
-            ${{ 
-              github.event_name == 'pull_request' && 7 ||
-              (github.event_name == 'push' && github.ref_name == 'main') && 14 ||
-              90
-            }}
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: hrv-card-${{ github.event.release.tag_name }}
-          path: dist
-
-      - name: Validate artifact
-        run: test -f dist/hrv-card.js
-
-      - name: Generate checksum
+      # -----------------------------
+      # RELEASE PUBLISH (NO ARTIFACTS)
+      # -----------------------------
+      - name: Generate checksum (release only)
+        if: github.event_name == 'release'
         run: sha256sum dist/hrv-card.js > dist/checksums.txt
 
-      - name: Upload release asset (permanent storage via GitHub Release)
+      - name: Upload release asset
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
