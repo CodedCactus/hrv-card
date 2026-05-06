@@ -25,16 +25,25 @@ interface HomeAssistant {
 export interface HRVCardConfig {
   title?: string;
 
+  // --- fixed HRV thermal model ---
   outdoor_temp: string;
   supply_temp: string;
   extract_temp: string;
   exhaust_temp: string;
 
-  // Optional additional sensors
-  supply_flow?: string;
-  exhaust_flow?: string;
-  bypass?: string;
-  heater?: string;
+  // --- generic sensors ---
+  sensors: SensorConfig[];
+}
+
+interface SensorConfig {
+  entity: string;
+  label?: string;
+
+  /** optional hint for binary formatting */
+  format?: "binary" | "text";
+
+  /** optional override */
+  unit?: string;
 }
 
 /**
@@ -64,12 +73,12 @@ class HRVCard extends LitElement {
       throw new Error("Invalid card configuration");
     }
 
-    const required: (keyof HRVCardConfig)[] = [
+    const required = [
       "outdoor_temp",
       "supply_temp",
       "extract_temp",
       "exhaust_temp"
-    ];
+    ] as const;
 
     for (const key of required) {
       if (!config[key]) {
@@ -77,6 +86,10 @@ class HRVCard extends LitElement {
           `HRV Card requires: ${required.join(", ")}`
         );
       }
+    }
+
+    if (!Array.isArray(config.sensors)) {
+      throw new Error("HRV Card requires sensors array");
     }
 
     this.config = { ...config };
@@ -92,21 +105,41 @@ class HRVCard extends LitElement {
    * -------------------------
    */
 
+  private renderTempLabel(
+    cls: string,
+    entity: string,
+    value: number,
+    label?: string
+  ) {
+    return html`
+        <div
+          class="label ${cls}"
+          title=${label ?? entity}
+          @click=${() => this.handleClick(entity)}
+        >
+          ${value.toFixed(1)}°C
+        </div>
+      `;
+  }
+
   private getState(entity: string): number {
     const raw = this.hass?.states?.[entity]?.state;
     const num = Number(raw);
     return Number.isNaN(num) ? 0 : num;
   }
 
-  private getRawState(entity: string): string {
-    return this.hass?.states?.[entity]?.state ?? "—";
+  private formatValue(value: string, isBinary: boolean): string {
+    if (isBinary) return value;
+
+    const num = Number(value);
+    if (Number.isNaN(num)) return value;
+
+    return num.toFixed(1);
   }
 
-  private getBinaryState(entity: string): boolean | null {
-    const raw = this.hass?.states?.[entity]?.state;
-    if (raw === "on") return true;
-    if (raw === "off") return false;
-    return null;
+  private getDeviceClass(entity: string): string | undefined {
+    return (this.hass?.states?.[entity]?.attributes as any)
+      ?.device_class;
   }
 
   private handleClick(entity: string) {
@@ -165,7 +198,7 @@ class HRVCard extends LitElement {
 
   /**
    * -------------------------
-   * SVG coloring
+   * SVG coloring (HRV model unchanged)
    * -------------------------
    */
 
@@ -173,10 +206,12 @@ class HRVCard extends LitElement {
     const svg = this.renderRoot.querySelector("svg");
     if (!svg || !this.config) return;
 
-    const outdoor = this.getState(this.config.outdoor_temp);
-    const supply = this.getState(this.config.supply_temp);
-    const extract = this.getState(this.config.extract_temp);
-    const exhaust = this.getState(this.config.exhaust_temp);
+    const get = (e: string) => this.getState(e);
+
+    const outdoor = get(this.config.outdoor_temp);
+    const supply = get(this.config.supply_temp);
+    const extract = get(this.config.extract_temp);
+    const exhaust = get(this.config.exhaust_temp);
 
     const lerp = (a: number, b: number, t: number) =>
       a + (b - a) * t;
@@ -264,81 +299,73 @@ class HRVCard extends LitElement {
 
   /**
    * -------------------------
-   * Sensor row rendering
+   * Sensor row (generic + device_class aware)
    * -------------------------
    */
 
   private renderSensorRow() {
-    if (!this.config) return html``;
-
-    const { bypass, heater, supply_flow, exhaust_flow } = this.config;
-    if (!bypass && !heater && !supply_flow && !exhaust_flow) return html``;
+    const sensors = this.config?.sensors ?? [];
+    if (!sensors.length) return html``;
 
     return html`
-    <div class="sensor-row">
-      ${bypass
-        ? html`
+      <div class="sensor-row">
+        ${sensors.map((s) => {
+      const state =
+        this.hass?.states?.[s.entity]?.state ?? "—";
+
+      const unit =
+        s.unit ??
+        (this.hass?.states?.[s.entity]?.attributes as any)
+          ?.unit_of_measurement ??
+        "";
+
+      const deviceClass = this.getDeviceClass(s.entity);
+
+      const isBinary =
+        s.format === "binary" ||
+        state === "on" ||
+        state === "off";
+
+      const isOpening = deviceClass === "opening";
+
+      const display = isBinary
+        ? state === "on"
+          ? isOpening
+            ? "Open"
+            : "On"
+          : isOpening
+            ? "Closed"
+            : "Off"
+        : this.formatValue(state, isBinary);
+
+      const showBadge = isBinary;
+
+      const isOn = state === "on";
+
+      const badgeClass = showBadge
+        ? isOn
+          ? "badge--on"
+          : "badge--off"
+        : "";
+
+      return html`
             <div
               class="sensor-chip"
-              @click=${() => this.handleClick(bypass)}
-              title=${bypass}
+              @click=${() => this.handleClick(s.entity)}
+              title=${s.entity}
             >
-              <span class="sensor-label">Bypass</span>
-              <span
-                class="sensor-value badge ${this.getBinaryState(bypass)
-            ? "badge--on"
-            : "badge--off"}"
-              >
-                ${this.getBinaryState(bypass) ? "Open" : "Closed"}
+              <span class="sensor-label">
+                ${s.label ?? s.entity.split(".")[1]}
+              </span>
+
+              <span class="sensor-value ${badgeClass}">
+                ${display}${!isBinary && unit ? ` ${unit}` : ""}
               </span>
             </div>
-          `
-        : ""}
-
-      ${heater
-        ? html`
-            <div
-              class="sensor-chip"
-              @click=${() => this.handleClick(heater)}
-              title=${heater}
-            >
-              <span class="sensor-label">Heater</span>
-              <span class="sensor-value">${this.getRawState(heater)}</span>
-            </div>
-          `
-        : ""}
-
-      ${supply_flow
-        ? html`
-            <div
-              class="sensor-chip"
-              @click=${() => this.handleClick(supply_flow)}
-              title=${supply_flow}
-            >
-              <span class="sensor-label">Supply</span>
-              <span class="sensor-value">
-                ${this.getRawState(supply_flow)} m³/h
-              </span>
-            </div>
-          `
-        : ""}
-
-      ${exhaust_flow
-        ? html`
-            <div
-              class="sensor-chip"
-              @click=${() => this.handleClick(exhaust_flow)}
-              title=${exhaust_flow}
-            >
-              <span class="sensor-label">Exhaust</span>
-              <span class="sensor-value">
-                ${this.getRawState(exhaust_flow)} m³/h
-              </span>
-            </div>
-          `
-        : ""}
-    </div>
-  `;
+          `;
+    })}
+      </div>
+    `;
   }
 
   /**
@@ -352,9 +379,9 @@ class HRVCard extends LitElement {
 
     const get = (e: string) => this.getState(e);
 
+    const outdoor = get(this.config.outdoor_temp);
     const supply = get(this.config.supply_temp);
     const extract = get(this.config.extract_temp);
-    const outdoor = get(this.config.outdoor_temp);
     const exhaust = get(this.config.exhaust_temp);
 
     return html`
@@ -364,41 +391,15 @@ class HRVCard extends LitElement {
             ${this.config.title || "HRV System"}
           </span>
         </div>
+
         <div class="wrap">
           <div class="svg" id="svgContainer"></div>
 
           <div class="overlay">
-            <div
-              class="label outdoor"
-              @click=${() =>
-        this.handleClick(this.config!.outdoor_temp)}
-            >
-              ${outdoor.toFixed(1)}°C
-            </div>
-
-            <div
-              class="label supply"
-              @click=${() =>
-        this.handleClick(this.config!.supply_temp)}
-            >
-              ${supply.toFixed(1)}°C
-            </div>
-
-            <div
-              class="label extract"
-              @click=${() =>
-        this.handleClick(this.config!.extract_temp)}
-            >
-              ${extract.toFixed(1)}°C
-            </div>
-
-            <div
-              class="label exhaust"
-              @click=${() =>
-        this.handleClick(this.config!.exhaust_temp)}
-            >
-              ${exhaust.toFixed(1)}°C
-            </div>
+            ${this.renderTempLabel("outdoor", this.config!.outdoor_temp, outdoor, "Outdoor temperature")}
+            ${this.renderTempLabel("supply", this.config!.supply_temp, supply, "Supply temperature")}
+            ${this.renderTempLabel("extract", this.config!.extract_temp, extract, "Extract temperature")}
+            ${this.renderTempLabel("exhaust", this.config!.exhaust_temp, exhaust, "Exhaust temperature")}
           </div>
         </div>
 
@@ -425,11 +426,7 @@ class HRVCard extends LitElement {
       font-weight: 500;
       color: var(--secondary-text-color);
       opacity: 0.9;
-      letter-spacing: 0.3px;
-      text-transform: none;
-      line-height: 1;
     }
-      
 
     .wrap {
       position: relative;
@@ -456,39 +453,17 @@ class HRVCard extends LitElement {
       color: var(--primary-text-color);
       padding: 2px 6px;
       border-radius: 6px;
-      box-shadow: var(--ha-card-box-shadow, none);
-      backdrop-filter: var(--ha-card-backdrop-filter, none);
+      cursor: pointer;
     }
 
-    .label:hover {
-      color: var(--primary-color);
-    }
+    .outdoor { top: 7%; left: 3%; }
+    .extract { top: 7%; right: 3%; }
+    .exhaust { bottom: 26%; left: 3%; }
+    .supply { bottom: 26%; right: 3%; }
 
-    .outdoor {
-      top: 7%;
-      left: 3%;
-    }
-
-    .extract {
-      top: 7%;
-      right: 3%;
-    }
-
-    .exhaust {
-      bottom: 26%;
-      left: 3%;
-    }
-
-    .supply {
-      bottom: 26%;
-      right: 3%;
-    }
-
-    /* ---- Sensor row ---- */
     .sensor-row {
       display: flex;
       flex-wrap: wrap;
-      flex-direction: row;
       gap: 8px;
       padding: 8px 12px 12px;
     }
@@ -497,58 +472,33 @@ class HRVCard extends LitElement {
       display: flex;
       align-items: center;
       gap: 6px;
-
-      flex: 0 1 auto;        
-      min-width: 60px;
-      max-width: 100%;
-
       padding: 6px 10px;
       border-radius: 8px;
       background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
       cursor: pointer;
-      transition: background 0.15s ease;
-    }
-
-    .sensor-chip:hover {
-      background: var(--divider-color, rgba(0, 0, 0, 0.12));
-    }
-
-    .sensor-icon {
-      font-size: 16px;
-      line-height: 1;
-      flex-shrink: 0;
     }
 
     .sensor-label {
       font-size: 12px;
-      color: var(--secondary-text-color, #888);
-      flex: 1;
-      white-space: nowrap;
+      color: var(--secondary-text-color);
     }
 
     .sensor-value {
       font-size: 13px;
       font-weight: 600;
-      color: var(--primary-text-color, #333);
-      white-space: nowrap;
-    }
-
-    .badge {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 10px;
-      white-space: nowrap;
     }
 
     .badge--on {
-      background: var(--success-color, #4caf50);
-      color: #fff;
+      background: #4caf50;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
     }
 
     .badge--off {
-      background: var(--disabled-color, rgba(0, 0, 0, 0.2));
-      color: var(--secondary-text-color, #888);
+      background: rgba(0,0,0,0.2);
+      padding: 2px 6px;
+      border-radius: 10px;
     }
   `;
 }
