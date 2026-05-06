@@ -8,38 +8,81 @@ on:
     types: [published]
   workflow_dispatch:
 
+concurrency:
+  group: hrv-card-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    outputs:
-      artifact-name: hrv-card
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies (clean)
-        run: npm ci
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Compute version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            BUILD_TYPE="release"
+          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            VERSION="main-${GITHUB_SHA::7}"
+            BUILD_TYPE="branch"
+          else
+            VERSION="pr-${GITHUB_SHA::7}"
+            BUILD_TYPE="pr"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Inject version
+        run: |
+          echo "export const VERSION = '${{ steps.version.outputs.version }}';" > src/version.js
 
       - name: Type check
         run: npm run typecheck
 
-      - name: Build project
+      - name: Lint (if available)
+        run: npm run lint --if-present
+
+      - name: Build
         run: npm run build
 
-      - name: Upload build artifact
+      - name: Validate output
+        run: test -f dist/hrv-card.js
+
+      - name: HACS validation (PR only)
+        if: github.event_name == 'pull_request'
+        uses: hacs/action@main
+        with:
+          category: plugin
+
+      - name: Upload artifact (PR → 7d, branch → 14d, release → 90d)
         uses: actions/upload-artifact@v4
         with:
-          name: hrv-card
+          name: hrv-card-${{ steps.version.outputs.version }}
           path: dist/hrv-card.js
           if-no-files-found: error
+          retention-days: |
+            ${{ 
+              github.event_name == 'pull_request' && 7 ||
+              (github.event_name == 'push' && github.ref_name == 'main') && 14 ||
+              90
+            }}
 
   publish:
     needs: build
@@ -50,15 +93,23 @@ jobs:
       contents: write
 
     steps:
-      - name: Download build artifact
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: hrv-card
+          name: hrv-card-${{ github.event.release.tag_name }}
           path: dist
 
-      - name: Upload release asset
+      - name: Validate artifact
+        run: test -f dist/hrv-card.js
+
+      - name: Generate checksum
+        run: sha256sum dist/hrv-card.js > dist/checksums.txt
+
+      - name: Upload release asset (permanent storage via GitHub Release)
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/hrv-card.js
+          files: |
+            dist/hrv-card.js
+            dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
