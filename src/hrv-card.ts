@@ -1,6 +1,41 @@
 import { LitElement, html, css } from "lit";
 import hrvSvg from "./assets/card.svg?raw";
 
+/**
+ * -------------------------
+ * Home Assistant types
+ * -------------------------
+ */
+
+interface HomeAssistantState {
+  state: string;
+}
+
+interface HomeAssistant {
+  states: Record<string, HomeAssistantState | undefined>;
+}
+
+/**
+ * -------------------------
+ * Card config
+ * -------------------------
+ */
+
+export interface HRVCardConfig {
+  title?: string;
+
+  outdoor_temp: string;
+  supply_temp: string;
+  extract_temp: string;
+  exhaust_temp: string;
+}
+
+/**
+ * -------------------------
+ * Component
+ * -------------------------
+ */
+
 class HRVCard extends LitElement {
   static get properties() {
     return {
@@ -9,27 +44,32 @@ class HRVCard extends LitElement {
     };
   }
 
-  hass: any;
-  config: any;
+  hass?: HomeAssistant;
+  config?: HRVCardConfig;
 
-  // -------------------------
-  // Config
-  // -------------------------
-
-  setConfig(config: any) {
+  /**
+   * -------------------------
+   * Config validation
+   * -------------------------
+   */
+  setConfig(config: HRVCardConfig) {
     if (!config || typeof config !== "object") {
       throw new Error("Invalid card configuration");
     }
 
-    if (
-      !config.outdoor_temp ||
-      !config.supply_temp ||
-      !config.extract_temp ||
-      !config.exhaust_temp
-    ) {
-      throw new Error(
-        "HRV Card requires outdoor_temp, supply_temp, extract_temp, and exhaust_temp"
-      );
+    const required: (keyof HRVCardConfig)[] = [
+      "outdoor_temp",
+      "supply_temp",
+      "extract_temp",
+      "exhaust_temp"
+    ];
+
+    for (const key of required) {
+      if (!config[key]) {
+        throw new Error(
+          `HRV Card requires: ${required.join(", ")}`
+        );
+      }
     }
 
     this.config = { ...config };
@@ -39,14 +79,16 @@ class HRVCard extends LitElement {
     return 3;
   }
 
-  // -------------------------
-  // Helpers
-  // -------------------------
+  /**
+   * -------------------------
+   * Helpers
+   * -------------------------
+   */
 
   private getState(entity: string): number {
     const raw = this.hass?.states?.[entity]?.state;
     const num = Number(raw);
-    return isNaN(num) ? 0 : num;
+    return Number.isNaN(num) ? 0 : num;
   }
 
   private handleClick(entity: string) {
@@ -54,14 +96,16 @@ class HRVCard extends LitElement {
       new CustomEvent("hass-more-info", {
         detail: { entityId: entity },
         bubbles: true,
-        composed: true,
+        composed: true
       })
     );
   }
 
-  // -------------------------
-  // Lifecycle
-  // -------------------------
+  /**
+   * -------------------------
+   * Lifecycle
+   * -------------------------
+   */
 
   firstUpdated() {
     const container = this.renderRoot.querySelector("#svgContainer");
@@ -72,11 +116,12 @@ class HRVCard extends LitElement {
     this.updateSvgColors();
   }
 
-  updated(changedProps: Map<string, any>) {
+  updated(changedProps: Map<string, unknown>) {
     if (!changedProps.has("hass")) return;
 
-    const oldHass = changedProps.get("hass");
-    if (!oldHass) {
+    const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
+
+    if (!oldHass || !this.hass || !this.config) {
       this.updateSvgColors();
       return;
     }
@@ -91,7 +136,7 @@ class HRVCard extends LitElement {
     const hasChanged = entities.some((entity) => {
       return (
         oldHass.states[entity]?.state !==
-        this.hass.states[entity]?.state
+        this.hass?.states[entity]?.state
       );
     });
 
@@ -100,13 +145,15 @@ class HRVCard extends LitElement {
     }
   }
 
-  // -------------------------
-  // SVG Coloring
-  // -------------------------
+  /**
+   * -------------------------
+   * SVG coloring
+   * -------------------------
+   */
 
   private updateSvgColors() {
     const svg = this.renderRoot.querySelector("svg");
-    if (!svg) return;
+    if (!svg || !this.config) return;
 
     const outdoor = this.getState(this.config.outdoor_temp);
     const supply = this.getState(this.config.supply_temp);
@@ -139,7 +186,7 @@ class HRVCard extends LitElement {
     const normalize = (t: number) => (t - minTemp) / range;
 
     const tempToColor = (t: number) => {
-      const colors = [
+      const colors: [number, number, number][] = [
         [59, 76, 192],
         [120, 180, 220],
         [245, 160, 105],
@@ -157,14 +204,20 @@ class HRVCard extends LitElement {
       const a = colors[i];
       const b = colors[Math.min(i + 1, segments)];
 
-      const lerp = (x: number, y: number) =>
+      const lerpC = (x: number, y: number) =>
         Math.round(x + (y - x) * f);
 
-      return `rgb(${lerp(a[0], b[0])},${lerp(a[1], b[1])},${lerp(a[2], b[2])})`;
+      return `rgb(${lerpC(a[0], b[0])},${lerpC(
+        a[1],
+        b[1]
+      )},${lerpC(a[2], b[2])})`;
     };
 
     const applyGradient = (id: string, temps: number[]) => {
-      const grad = svg.querySelector(`#${id}`) as SVGLinearGradientElement;
+      const grad = svg.querySelector(
+        `#${id}`
+      ) as SVGLinearGradientElement | null;
+
       if (!grad) return;
 
       grad.innerHTML = "";
@@ -178,7 +231,10 @@ class HRVCard extends LitElement {
         const offset = (i / (temps.length - 1)) * 100;
 
         stop.setAttribute("offset", `${offset}%`);
-        stop.setAttribute("stop-color", tempToColor(normalize(t)));
+        stop.setAttribute(
+          "stop-color",
+          tempToColor(normalize(t))
+        );
 
         grad.appendChild(stop);
       });
@@ -188,14 +244,14 @@ class HRVCard extends LitElement {
     applyGradient("gradientPath2", path2Temps);
   }
 
-  // -------------------------
-  // Render
-  // -------------------------
+  /**
+   * -------------------------
+   * Render
+   * -------------------------
+   */
 
   render() {
-    if (!this.hass || !this.config) {
-      return html``;
-    }
+    if (!this.hass || !this.config) return html``;
 
     const get = (e: string) => this.getState(e);
 
@@ -207,34 +263,51 @@ class HRVCard extends LitElement {
     return html`
       <ha-card header="${this.config.title || "HRV System"}">
         <div class="wrap">
-
-          <!-- SVG injected once -->
           <div class="svg" id="svgContainer"></div>
 
-          <!-- Overlay values -->
           <div class="overlay">
-            <div class="label outdoor" @click=${() => this.handleClick(this.config.outdoor_temp)}>
+            <div
+              class="label outdoor"
+              @click=${() =>
+                this.handleClick(this.config!.outdoor_temp)}
+            >
               ${outdoor.toFixed(1)}°C
             </div>
-            <div class="label supply" @click=${() => this.handleClick(this.config.supply_temp)}>
+
+            <div
+              class="label supply"
+              @click=${() =>
+                this.handleClick(this.config!.supply_temp)}
+            >
               ${supply.toFixed(1)}°C
             </div>
-            <div class="label extract" @click=${() => this.handleClick(this.config.extract_temp)}>
+
+            <div
+              class="label extract"
+              @click=${() =>
+                this.handleClick(this.config!.extract_temp)}
+            >
               ${extract.toFixed(1)}°C
             </div>
-            <div class="label exhaust" @click=${() => this.handleClick(this.config.exhaust_temp)}>
+
+            <div
+              class="label exhaust"
+              @click=${() =>
+                this.handleClick(this.config!.exhaust_temp)}
+            >
               ${exhaust.toFixed(1)}°C
             </div>
           </div>
-
         </div>
       </ha-card>
     `;
   }
 
-  // -------------------------
-  // Styles
-  // -------------------------
+  /**
+   * -------------------------
+   * Styles
+   * -------------------------
+   */
 
   static styles = css`
     .wrap {
@@ -268,10 +341,25 @@ class HRVCard extends LitElement {
       color: rgb(186, 186, 186);
     }
 
-    .outdoor { top: 9%; left: 4%; }
-    .extract { top: 9%; right: 4%; }
-    .exhaust { bottom: 27%; left: 4%; }
-    .supply { bottom: 27%; right: 4%; }
+    .outdoor {
+      top: 9%;
+      left: 4%;
+    }
+
+    .extract {
+      top: 9%;
+      right: 4%;
+    }
+
+    .exhaust {
+      bottom: 27%;
+      left: 4%;
+    }
+
+    .supply {
+      bottom: 27%;
+      right: 4%;
+    }
   `;
 }
 
