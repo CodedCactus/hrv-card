@@ -269,12 +269,12 @@ class HRVCard extends LitElement {
    */
 
   private renderSensorRow() {
-  if (!this.config) return html``;
+    if (!this.config) return html``;
 
-  const { bypass, heater, supply_flow, exhaust_flow } = this.config;
-  if (!bypass && !heater && !supply_flow && !exhaust_flow) return html``;
+    const { bypass, heater, supply_flow, exhaust_flow } = this.config;
+    if (!bypass && !heater && !supply_flow && !exhaust_flow) return html``;
 
-  return html`
+    return html`
     <div class="sensor-row">
       ${bypass
         ? html`
@@ -286,8 +286,8 @@ class HRVCard extends LitElement {
               <span class="sensor-label">Bypass</span>
               <span
                 class="sensor-value badge ${this.getBinaryState(bypass)
-                  ? "badge--on"
-                  : "badge--off"}"
+            ? "badge--on"
+            : "badge--off"}"
               >
                 ${this.getBinaryState(bypass) ? "Open" : "Closed"}
               </span>
@@ -315,9 +315,9 @@ class HRVCard extends LitElement {
               @click=${() => this.handleClick(supply_flow)}
               title=${supply_flow}
             >
-              <span class="sensor-label">Supply Flow</span>
+              <span class="sensor-label">Supply</span>
               <span class="sensor-value">
-                ${this.getRawState(supply_flow)}
+                ${this.getRawState(supply_flow)} m³/h
               </span>
             </div>
           `
@@ -330,16 +330,16 @@ class HRVCard extends LitElement {
               @click=${() => this.handleClick(exhaust_flow)}
               title=${exhaust_flow}
             >
-              <span class="sensor-label">Exhaust Flow</span>
+              <span class="sensor-label">Exhaust</span>
               <span class="sensor-value">
-                ${this.getRawState(exhaust_flow)}
+                ${this.getRawState(exhaust_flow)} m³/h
               </span>
             </div>
           `
         : ""}
     </div>
   `;
-}
+  }
 
   /**
    * -------------------------
@@ -358,7 +358,12 @@ class HRVCard extends LitElement {
     const exhaust = get(this.config.exhaust_temp);
 
     return html`
-      <ha-card header="${this.config.title || "HRV System"}">
+      <ha-card>
+        <div class="mini-header">
+          <span class="mini-title">
+            ${this.config.title || "HRV System"}
+          </span>
+        </div>
         <div class="wrap">
           <div class="svg" id="svgContainer"></div>
 
@@ -409,6 +414,23 @@ class HRVCard extends LitElement {
    */
 
   static styles = css`
+    .mini-header {
+      padding: 12px 16px 4px;
+      display: flex;
+      align-items: center;
+    }
+
+    .mini-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--secondary-text-color);
+      opacity: 0.9;
+      letter-spacing: 0.3px;
+      text-transform: none;
+      line-height: 1;
+    }
+      
+
     .wrap {
       position: relative;
       width: 100%;
@@ -429,35 +451,37 @@ class HRVCard extends LitElement {
     .label {
       pointer-events: auto;
       position: absolute;
-      font-size: 14px;
-      font-weight: 600;
-      color: white;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--primary-text-color);
       padding: 2px 6px;
-      border-radius: 4px;
+      border-radius: 6px;
+      box-shadow: var(--ha-card-box-shadow, none);
+      backdrop-filter: var(--ha-card-backdrop-filter, none);
     }
 
     .label:hover {
-      color: rgb(186, 186, 186);
+      color: var(--primary-color);
     }
 
     .outdoor {
-      top: 9%;
-      left: 4%;
+      top: 7%;
+      left: 3%;
     }
 
     .extract {
-      top: 9%;
-      right: 4%;
+      top: 7%;
+      right: 3%;
     }
 
     .exhaust {
-      bottom: 27%;
-      left: 4%;
+      bottom: 26%;
+      left: 3%;
     }
 
     .supply {
-      bottom: 27%;
-      right: 4%;
+      bottom: 26%;
+      right: 3%;
     }
 
     /* ---- Sensor row ---- */
