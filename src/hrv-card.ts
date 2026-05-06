@@ -9,6 +9,7 @@ import hrvSvg from "./assets/card.svg?raw";
 
 interface HomeAssistantState {
   state: string;
+  attributes?: Record<string, unknown>;
 }
 
 interface HomeAssistant {
@@ -28,6 +29,12 @@ export interface HRVCardConfig {
   supply_temp: string;
   extract_temp: string;
   exhaust_temp: string;
+
+  // Optional additional sensors
+  supply_flow?: string;
+  exhaust_flow?: string;
+  bypass?: string;
+  heater?: string;
 }
 
 /**
@@ -89,6 +96,17 @@ class HRVCard extends LitElement {
     const raw = this.hass?.states?.[entity]?.state;
     const num = Number(raw);
     return Number.isNaN(num) ? 0 : num;
+  }
+
+  private getRawState(entity: string): string {
+    return this.hass?.states?.[entity]?.state ?? "—";
+  }
+
+  private getBinaryState(entity: string): boolean | null {
+    const raw = this.hass?.states?.[entity]?.state;
+    if (raw === "on") return true;
+    if (raw === "off") return false;
+    return null;
   }
 
   private handleClick(entity: string) {
@@ -246,6 +264,85 @@ class HRVCard extends LitElement {
 
   /**
    * -------------------------
+   * Sensor row rendering
+   * -------------------------
+   */
+
+  private renderSensorRow() {
+  if (!this.config) return html``;
+
+  const { bypass, heater, supply_flow, exhaust_flow } = this.config;
+  if (!bypass && !heater && !supply_flow && !exhaust_flow) return html``;
+
+  return html`
+    <div class="sensor-row">
+      ${bypass
+        ? html`
+            <div
+              class="sensor-chip"
+              @click=${() => this.handleClick(bypass)}
+              title=${bypass}
+            >
+              <span class="sensor-label">Bypass</span>
+              <span
+                class="sensor-value badge ${this.getBinaryState(bypass)
+                  ? "badge--on"
+                  : "badge--off"}"
+              >
+                ${this.getBinaryState(bypass) ? "Open" : "Closed"}
+              </span>
+            </div>
+          `
+        : ""}
+
+      ${heater
+        ? html`
+            <div
+              class="sensor-chip"
+              @click=${() => this.handleClick(heater)}
+              title=${heater}
+            >
+              <span class="sensor-label">Heater</span>
+              <span class="sensor-value">${this.getRawState(heater)}</span>
+            </div>
+          `
+        : ""}
+
+      ${supply_flow
+        ? html`
+            <div
+              class="sensor-chip"
+              @click=${() => this.handleClick(supply_flow)}
+              title=${supply_flow}
+            >
+              <span class="sensor-label">Supply Flow</span>
+              <span class="sensor-value">
+                ${this.getRawState(supply_flow)}
+              </span>
+            </div>
+          `
+        : ""}
+
+      ${exhaust_flow
+        ? html`
+            <div
+              class="sensor-chip"
+              @click=${() => this.handleClick(exhaust_flow)}
+              title=${exhaust_flow}
+            >
+              <span class="sensor-label">Exhaust Flow</span>
+              <span class="sensor-value">
+                ${this.getRawState(exhaust_flow)}
+              </span>
+            </div>
+          `
+        : ""}
+    </div>
+  `;
+}
+
+  /**
+   * -------------------------
    * Render
    * -------------------------
    */
@@ -269,7 +366,7 @@ class HRVCard extends LitElement {
             <div
               class="label outdoor"
               @click=${() =>
-                this.handleClick(this.config!.outdoor_temp)}
+        this.handleClick(this.config!.outdoor_temp)}
             >
               ${outdoor.toFixed(1)}°C
             </div>
@@ -277,7 +374,7 @@ class HRVCard extends LitElement {
             <div
               class="label supply"
               @click=${() =>
-                this.handleClick(this.config!.supply_temp)}
+        this.handleClick(this.config!.supply_temp)}
             >
               ${supply.toFixed(1)}°C
             </div>
@@ -285,7 +382,7 @@ class HRVCard extends LitElement {
             <div
               class="label extract"
               @click=${() =>
-                this.handleClick(this.config!.extract_temp)}
+        this.handleClick(this.config!.extract_temp)}
             >
               ${extract.toFixed(1)}°C
             </div>
@@ -293,12 +390,14 @@ class HRVCard extends LitElement {
             <div
               class="label exhaust"
               @click=${() =>
-                this.handleClick(this.config!.exhaust_temp)}
+        this.handleClick(this.config!.exhaust_temp)}
             >
               ${exhaust.toFixed(1)}°C
             </div>
           </div>
         </div>
+
+        ${this.renderSensorRow()}
       </ha-card>
     `;
   }
@@ -359,6 +458,69 @@ class HRVCard extends LitElement {
     .supply {
       bottom: 27%;
       right: 4%;
+    }
+
+    /* ---- Sensor row ---- */
+
+    .sensor-row {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      padding: 8px 12px 12px;
+    }
+
+    .sensor-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .sensor-chip:hover {
+      background: var(--divider-color, rgba(0, 0, 0, 0.12));
+    }
+
+    .sensor-icon {
+      font-size: 16px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .sensor-label {
+      font-size: 12px;
+      color: var(--secondary-text-color, #888);
+      flex: 1;
+      white-space: nowrap;
+    }
+
+    .sensor-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary-text-color, #333);
+      white-space: nowrap;
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+
+    .badge--on {
+      background: var(--success-color, #4caf50);
+      color: #fff;
+    }
+
+    .badge--off {
+      background: var(--disabled-color, rgba(0, 0, 0, 0.2));
+      color: var(--secondary-text-color, #888);
     }
   `;
 }
