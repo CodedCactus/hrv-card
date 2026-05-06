@@ -2,6 +2,6 @@
   "name": "HRV Card",
   "content_in_root": false,
   "render_readme": true,
-  "filename": "dist/hrv-card.js",
+  "filename": "hrv-card.js",
   "domains": ["lovelace"]
 }
