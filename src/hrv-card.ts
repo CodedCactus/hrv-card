@@ -55,12 +55,30 @@ interface SensorConfig {
 class HRVCard extends LitElement {
   static get properties() {
     return {
-      hass: { type: Object },
       config: { type: Object }
     };
   }
 
-  hass?: HomeAssistant;
+  /**
+   * -------------------------
+   * Hass setter (forces instant updates)
+   * -------------------------
+   */
+
+  private _hass?: HomeAssistant;
+
+  get hass(): HomeAssistant | undefined {
+    return this._hass;
+  }
+
+  set hass(value: HomeAssistant | undefined) {
+    const old = this._hass;
+    this._hass = value;
+
+    // force immediate render/update cycle
+    this.requestUpdate("hass", old);
+  }
+
   config?: HRVCardConfig;
 
   /**
@@ -68,6 +86,7 @@ class HRVCard extends LitElement {
    * Config validation
    * -------------------------
    */
+
   setConfig(config: HRVCardConfig) {
     if (!config || typeof config !== "object") {
       throw new Error("Invalid card configuration");
@@ -112,14 +131,14 @@ class HRVCard extends LitElement {
     label?: string
   ) {
     return html`
-        <div
-          class="label ${cls}"
-          title=${label ?? entity}
-          @click=${() => this.handleClick(entity)}
-        >
-          ${value.toFixed(1)}°C
-        </div>
-      `;
+      <div
+        class="label ${cls}"
+        title=${label ?? entity}
+        @click=${() => this.handleClick(entity)}
+      >
+        ${value.toFixed(1)}°C
+      </div>
+    `;
   }
 
   private getState(entity: string): number {
@@ -160,6 +179,7 @@ class HRVCard extends LitElement {
 
   firstUpdated() {
     const container = this.renderRoot.querySelector("#svgContainer");
+
     if (container) {
       container.innerHTML = hrvSvg;
     }
@@ -167,10 +187,12 @@ class HRVCard extends LitElement {
     this.updateSvgColors();
   }
 
-  updated(changedProps: Map<string, unknown>) {
+  protected updated(changedProps: Map<string, unknown>) {
     if (!changedProps.has("hass")) return;
 
-    const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
+    const oldHass = changedProps.get("hass") as
+      | HomeAssistant
+      | undefined;
 
     if (!oldHass || !this.hass || !this.config) {
       this.updateSvgColors();
@@ -198,12 +220,13 @@ class HRVCard extends LitElement {
 
   /**
    * -------------------------
-   * SVG coloring (HRV model unchanged)
+   * SVG coloring
    * -------------------------
    */
 
   private updateSvgColors() {
     const svg = this.renderRoot.querySelector("svg");
+
     if (!svg || !this.config) return;
 
     const get = (e: string) => this.getState(e);
@@ -234,6 +257,7 @@ class HRVCard extends LitElement {
 
     const minTemp = Math.min(...allTemps);
     const maxTemp = Math.max(...allTemps);
+
     const range = Math.max(maxTemp - minTemp, 0.1);
 
     const normalize = (t: number) => (t - minTemp) / range;
@@ -284,6 +308,7 @@ class HRVCard extends LitElement {
         const offset = (i / (temps.length - 1)) * 100;
 
         stop.setAttribute("offset", `${offset}%`);
+
         stop.setAttribute(
           "stop-color",
           tempToColor(normalize(t))
@@ -299,56 +324,57 @@ class HRVCard extends LitElement {
 
   /**
    * -------------------------
-   * Sensor row (generic + device_class aware)
+   * Sensor row
    * -------------------------
    */
 
   private renderSensorRow() {
     const sensors = this.config?.sensors ?? [];
+
     if (!sensors.length) return html``;
 
     return html`
       <div class="sensor-row">
         ${sensors.map((s) => {
-      const state =
-        this.hass?.states?.[s.entity]?.state ?? "—";
+          const state =
+            this.hass?.states?.[s.entity]?.state ?? "—";
 
-      const unit =
-        s.unit ??
-        (this.hass?.states?.[s.entity]?.attributes as any)
-          ?.unit_of_measurement ??
-        "";
+          const unit =
+            s.unit ??
+            (this.hass?.states?.[s.entity]?.attributes as any)
+              ?.unit_of_measurement ??
+            "";
 
-      const deviceClass = this.getDeviceClass(s.entity);
+          const deviceClass = this.getDeviceClass(s.entity);
 
-      const isBinary =
-        s.format === "binary" ||
-        state === "on" ||
-        state === "off";
+          const isBinary =
+            s.format === "binary" ||
+            state === "on" ||
+            state === "off";
 
-      const isOpening = deviceClass === "opening";
+          const isOpening = deviceClass === "opening";
 
-      const display = isBinary
-        ? state === "on"
-          ? isOpening
-            ? "Open"
-            : "On"
-          : isOpening
-            ? "Closed"
-            : "Off"
-        : this.formatValue(state, isBinary);
+          const display = isBinary
+            ? state === "on"
+              ? isOpening
+                ? "Open"
+                : "On"
+              : isOpening
+                ? "Closed"
+                : "Off"
+            : this.formatValue(state, isBinary);
 
-      const showBadge = isBinary;
+          const showBadge = isBinary;
 
-      const isOn = state === "on";
+          const isOn = state === "on";
 
-      const badgeClass = showBadge
-        ? isOn
-          ? "badge--on"
-          : "badge--off"
-        : "";
+          const badgeClass = showBadge
+            ? isOn
+              ? "badge--on"
+              : "badge--off"
+            : "";
 
-      return html`
+          return html`
             <div
               class="sensor-chip"
               @click=${() => this.handleClick(s.entity)}
@@ -359,11 +385,13 @@ class HRVCard extends LitElement {
               </span>
 
               <span class="sensor-value ${badgeClass}">
-                ${display}${!isBinary && unit ? ` ${unit}` : ""}
+                ${display}${!isBinary && unit
+                  ? ` ${unit}`
+                  : ""}
               </span>
             </div>
           `;
-    })}
+        })}
       </div>
     `;
   }
@@ -375,7 +403,9 @@ class HRVCard extends LitElement {
    */
 
   render() {
-    if (!this.hass || !this.config) return html``;
+    if (!this.hass || !this.config) {
+      return html``;
+    }
 
     const get = (e: string) => this.getState(e);
 
@@ -396,10 +426,33 @@ class HRVCard extends LitElement {
           <div class="svg" id="svgContainer"></div>
 
           <div class="overlay">
-            ${this.renderTempLabel("outdoor", this.config!.outdoor_temp, outdoor, "Outdoor temperature")}
-            ${this.renderTempLabel("supply", this.config!.supply_temp, supply, "Supply temperature")}
-            ${this.renderTempLabel("extract", this.config!.extract_temp, extract, "Extract temperature")}
-            ${this.renderTempLabel("exhaust", this.config!.exhaust_temp, exhaust, "Exhaust temperature")}
+            ${this.renderTempLabel(
+              "outdoor",
+              this.config.outdoor_temp,
+              outdoor,
+              "Outdoor temperature"
+            )}
+
+            ${this.renderTempLabel(
+              "supply",
+              this.config.supply_temp,
+              supply,
+              "Supply temperature"
+            )}
+
+            ${this.renderTempLabel(
+              "extract",
+              this.config.extract_temp,
+              extract,
+              "Extract temperature"
+            )}
+
+            ${this.renderTempLabel(
+              "exhaust",
+              this.config.exhaust_temp,
+              exhaust,
+              "Exhaust temperature"
+            )}
           </div>
         </div>
 
@@ -456,10 +509,25 @@ class HRVCard extends LitElement {
       cursor: pointer;
     }
 
-    .outdoor { top: 7%; left: 3%; }
-    .extract { top: 7%; right: 3%; }
-    .exhaust { bottom: 26%; left: 3%; }
-    .supply { bottom: 26%; right: 3%; }
+    .outdoor {
+      top: 7%;
+      left: 3%;
+    }
+
+    .extract {
+      top: 7%;
+      right: 3%;
+    }
+
+    .exhaust {
+      bottom: 26%;
+      left: 3%;
+    }
+
+    .supply {
+      bottom: 26%;
+      right: 3%;
+    }
 
     .sensor-row {
       display: flex;
@@ -474,7 +542,10 @@ class HRVCard extends LitElement {
       gap: 6px;
       padding: 6px 10px;
       border-radius: 8px;
-      background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
+      background: var(
+        --secondary-background-color,
+        rgba(0, 0, 0, 0.06)
+      );
       cursor: pointer;
     }
 
@@ -496,7 +567,7 @@ class HRVCard extends LitElement {
     }
 
     .badge--off {
-      background: rgba(0,0,0,0.2);
+      background: rgba(0, 0, 0, 0.2);
       padding: 2px 6px;
       border-radius: 10px;
     }
@@ -508,9 +579,11 @@ if (!customElements.get("hrv-card")) {
 }
 
 window.customCards = window.customCards || [];
+
 window.customCards.push({
   type: "hrv-card",
   name: "HRV Card",
-  description: "Heat Recovery Ventilation visualization card",
+  description:
+    "Heat Recovery Ventilation visualization card",
   preview: true
 });
