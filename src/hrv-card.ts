@@ -55,30 +55,12 @@ interface SensorConfig {
 class HRVCard extends LitElement {
   static get properties() {
     return {
+      hass: { type: Object },
       config: { type: Object }
     };
   }
 
-  /**
-   * -------------------------
-   * Hass setter (forces instant updates)
-   * -------------------------
-   */
-
-  private _hass?: HomeAssistant;
-
-  get hass(): HomeAssistant | undefined {
-    return this._hass;
-  }
-
-  set hass(value: HomeAssistant | undefined) {
-    const old = this._hass;
-    this._hass = value;
-
-    // force immediate render/update cycle
-    this.requestUpdate("hass", old);
-  }
-
+  hass?: HomeAssistant;
   config?: HRVCardConfig;
 
   /**
@@ -396,6 +378,16 @@ class HRVCard extends LitElement {
     `;
   }
 
+  private renderError(message: string) {
+    return html`
+      <ha-card class="error-card">
+        <div class="error-message">
+          ${message}
+        </div>
+      </ha-card>
+    `;
+  }
+
   /**
    * -------------------------
    * Render
@@ -403,8 +395,12 @@ class HRVCard extends LitElement {
    */
 
   render() {
-    if (!this.hass || !this.config) {
-      return html``;
+    if (!this.config) {
+      return this.renderError("HRV Card configuration is missing or invalid.");
+    }
+
+    if (!this.hass) {
+      return this.renderError("Waiting for Home Assistant data...");
     }
 
     const get = (e: string) => this.getState(e);
@@ -560,16 +556,33 @@ class HRVCard extends LitElement {
     }
 
     .badge--on {
-      background: #4caf50;
-      color: white;
+      background: var(--success-color, #4caf50);
+      color: var(--primary-background-color, #fff);
       padding: 2px 6px;
       border-radius: 10px;
     }
 
     .badge--off {
-      background: rgba(0, 0, 0, 0.2);
+      background: var(--disabled-background-color, rgba(0, 0, 0, 0.2));
+      color: var(--disabled-text-color, var(--primary-text-color, #000));
       padding: 2px 6px;
       border-radius: 10px;
+    }
+
+    .error-card {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
+      padding: 16px;
+    }
+
+    .error-message {
+      width: 100%;
+      text-align: center;
+      color: var(--error-color, #c62828);
+      font-size: 14px;
+      font-weight: 500;
     }
   `;
 }
