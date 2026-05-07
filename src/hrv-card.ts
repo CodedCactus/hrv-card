@@ -1,4 +1,5 @@
 import { LitElement, html, css } from "lit";
+import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import hrvSvg from "./assets/card.svg?raw";
 
 /**
@@ -160,12 +161,6 @@ class HRVCard extends LitElement {
    */
 
   firstUpdated() {
-    const container = this.renderRoot.querySelector("#svgContainer");
-
-    if (container) {
-      container.innerHTML = hrvSvg;
-    }
-
     this.updateSvgColors();
   }
 
@@ -405,7 +400,9 @@ class HRVCard extends LitElement {
         </div>
 
         <div class="wrap">
-          <div class="svg" id="svgContainer"></div>
+          <div class="svg">
+            ${unsafeSVG(hrvSvg)}
+          </div>
 
           <div class="overlay">
             ${this.renderTempLabel(
