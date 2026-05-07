@@ -378,16 +378,6 @@ class HRVCard extends LitElement {
     `;
   }
 
-  private renderError(message: string) {
-    return html`
-      <ha-card class="error-card">
-        <div class="error-message">
-          ${message}
-        </div>
-      </ha-card>
-    `;
-  }
-
   /**
    * -------------------------
    * Render
@@ -395,12 +385,8 @@ class HRVCard extends LitElement {
    */
 
   render() {
-    if (!this.config) {
-      return this.renderError("HRV Card configuration is missing or invalid.");
-    }
-
-    if (!this.hass) {
-      return this.renderError("Waiting for Home Assistant data...");
+    if (!this.hass || !this.config) {
+      return html``;
     }
 
     const get = (e: string) => this.getState(e);
@@ -567,22 +553,6 @@ class HRVCard extends LitElement {
       color: var(--disabled-text-color, var(--primary-text-color, #000));
       padding: 2px 6px;
       border-radius: 10px;
-    }
-
-    .error-card {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 120px;
-      padding: 16px;
-    }
-
-    .error-message {
-      width: 100%;
-      text-align: center;
-      color: var(--error-color, #c62828);
-      font-size: 14px;
-      font-weight: 500;
     }
   `;
 }
