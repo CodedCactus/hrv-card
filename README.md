@@ -86,7 +86,9 @@ sensors:
 | `supply_temp` | Yes | string | Entity ID for supply air temperature sensor |
 | `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
 | `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
-| `sensors` | Yes | array | Array of additional sensors to display |
+| `supply_flow` | No | string | Entity ID for supply air flow sensor |
+| `exhaust_flow` | No | string | Entity ID for exhaust air flow sensor |
+| `sensors` | No | array | Array of additional sensors to display |
 
 ### Sensor Configuration
 

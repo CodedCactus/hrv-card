@@ -21,6 +21,8 @@ export interface HRVCardConfig {
   supply_temp: string;
   extract_temp: string;
   exhaust_temp: string;
+  supply_flow?: string;
+  exhaust_flow?: string;
   sensors: SensorConfig[];
 }
 
@@ -150,6 +152,8 @@ class HRVCard extends LitElement {
       this.config.supply_temp,
       this.config.extract_temp,
       this.config.exhaust_temp,
+      ...(this.config.supply_flow ? [this.config.supply_flow] : []),
+      ...(this.config.exhaust_flow ? [this.config.exhaust_flow] : []),
       ...(this.config.sensors?.map((s) => s.entity) ?? []),
     ];
 
@@ -282,23 +286,25 @@ class HRVCard extends LitElement {
 
   // ── render helpers ─────────────────────────
 
-  private renderTempLabel(
-    cssClass: string,
-    entity: string,
-    value: number,
-    label: string
-  ) {
-    return html`
-      <div
-        class="label ${cssClass}"
-        title=${label}
-        @click=${() => this.handleMoreInfo(entity)}
-      >
-        ${value.toFixed(1)}°C
-      </div>
-    `;
-  }
-
+    private renderLabel(
+      cssClass: string,
+      entity: string,
+      value: number,
+      label: string,
+      unit: string = "°C",
+      labelClass: string = "label",
+      decimals: number = 1
+    ) {
+      return html`
+        <div
+          class="${labelClass} ${cssClass}"
+          title=${label}
+          @click=${() => this.handleMoreInfo(entity)}
+        >
+          ${value.toFixed(decimals)} ${unit}
+        </div>
+      `;
+    }
   private renderSensorChip(sensor: SensorConfig) {
     const { display, unit, isBinary, isOn } = this.getSensorDisplayInfo(sensor);
     const badgeClass = isBinary ? (isOn ? "badge--on" : "badge--off") : "";
@@ -346,10 +352,30 @@ class HRVCard extends LitElement {
           <div class="svg">${unsafeSVG(hrvSvg)}</div>
 
           <div class="overlay">
-            ${this.renderTempLabel("outdoor", outdoor_temp, this.getNumericState(outdoor_temp), "Outdoor temperature")}
-            ${this.renderTempLabel("supply", supply_temp, this.getNumericState(supply_temp), "Supply temperature")}
-            ${this.renderTempLabel("extract", extract_temp, this.getNumericState(extract_temp), "Extract temperature")}
-            ${this.renderTempLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust temperature")}
+            ${this.renderLabel("outdoor", outdoor_temp, this.getNumericState(outdoor_temp), "Outdoor temperature")}
+            ${this.renderLabel("supply", supply_temp, this.getNumericState(supply_temp), "Supply temperature")}
+            ${this.renderLabel("extract", extract_temp, this.getNumericState(extract_temp), "Extract temperature")}
+            ${this.renderLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust temperature")}
+            
+            ${this.config.supply_flow ? this.renderLabel(
+              "supply-flow", 
+              this.config.supply_flow, 
+              this.getNumericState(this.config.supply_flow),
+              "Supply flow rate",
+              this.getEntityAttribute<string>(this.config.supply_flow, "unit_of_measurement") || "m³/h",
+              "flow-label",
+              0
+            ) : ""}
+            
+            ${this.config.exhaust_flow ? this.renderLabel(
+              "exhaust-flow", 
+              this.config.exhaust_flow, 
+              this.getNumericState(this.config.exhaust_flow),
+              "Exhaust flow rate",
+              this.getEntityAttribute<string>(this.config.exhaust_flow, "unit_of_measurement") || "m³/h",
+              "flow-label",
+              0
+            ) : ""}
           </div>
         </div>
 
@@ -409,6 +435,21 @@ class HRVCard extends LitElement {
     .extract { top: 7%; right: 3%; }
     .exhaust { bottom: 26%; left: 3%; }
     .supply  { bottom: 26%; right: 3%; }
+
+    .flow-label {
+      position: absolute;
+      font-size: clamp(10px, 1vw, 12px);
+      font-weight: 600;
+      color: var(--secondary-text-color);
+      opacity: 0.8;
+      pointer-events: auto;
+      cursor: pointer;
+      text-align: center;
+      left: 4%;
+    }
+
+    .supply-flow { top: 37%}
+    .exhaust-flow { bottom: 2%}
 
     .sensor-row {
       display: flex;
