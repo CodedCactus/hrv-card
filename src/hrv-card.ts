@@ -56,13 +56,43 @@ interface SensorConfig {
 class HRVCard extends LitElement {
   static get properties() {
     return {
-      hass: { type: Object },
+      _hass: { type: Object, state: true },
       config: { type: Object }
     };
   }
 
-  hass?: HomeAssistant;
+  // --- private backing field ---
+  private _hass?: HomeAssistant;
   config?: HRVCardConfig;
+
+  // --- hass setter/getter ---
+  set hass(value: HomeAssistant) {
+    const old = this._hass;
+    this._hass = value;
+
+    if (this.config && this.hasUpdated) {
+      const entities = [
+        this.config.outdoor_temp,
+        this.config.supply_temp,
+        this.config.extract_temp,
+        this.config.exhaust_temp,
+        ...(this.config.sensors?.map(s => s.entity) ?? []),
+      ];
+
+      const changed = entities.some(
+        entity => old?.states[entity]?.state !== value.states[entity]?.state
+      );
+
+      if (changed) this.requestUpdate();
+    } else {
+      this.requestUpdate();
+    }
+  }
+
+  get hass(): HomeAssistant | undefined {
+    return this._hass;
+  }
+  
 
   /**
    * -------------------------
@@ -165,36 +195,10 @@ class HRVCard extends LitElement {
   }
 
   protected updated(changedProps: Map<string, unknown>) {
-    if (!changedProps.has("hass")) return;
-
-    const oldHass = changedProps.get("hass") as
-      | HomeAssistant
-      | undefined;
-
-    if (!oldHass || !this.hass || !this.config) {
-      this.updateSvgColors();
-      return;
-    }
-
-    const entities = [
-      this.config.outdoor_temp,
-      this.config.supply_temp,
-      this.config.extract_temp,
-      this.config.exhaust_temp
-    ];
-
-    const hasChanged = entities.some((entity) => {
-      return (
-        oldHass.states[entity]?.state !==
-        this.hass?.states[entity]?.state
-      );
-    });
-
-    if (hasChanged) {
+    if (changedProps.has("hass")) {
       this.updateSvgColors();
     }
   }
-
   /**
    * -------------------------
    * SVG coloring
