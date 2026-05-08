@@ -23,7 +23,7 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 
 1. Open **HACS → Frontend**
 2. Click **⋮ → Custom repositories**
-3. Add this repository URL
+3. Add this repository [https://github.com/CodedCactus/hrv-card](https://github.com/CodedCactus/hrv-card/)
 4. Select category: **Lovelace**
 5. Install **HRV Card**
 6. Restart Home Assistant

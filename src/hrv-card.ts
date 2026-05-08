@@ -361,6 +361,9 @@ class HRVCard extends LitElement {
   // ── styles ─────────────────────────────────
 
   static styles = css`
+    ha-card {
+      overflow: hidden;
+    }
     .mini-header {
       padding: 12px 16px 4px;
       display: flex;
@@ -394,7 +397,7 @@ class HRVCard extends LitElement {
     .label {
       pointer-events: auto;
       position: absolute;
-      font-size: 16px;
+      font-size: clamp(12px, 1.2vw, 16px);
       font-weight: 500;
       color: var(--primary-text-color);
       padding: 2px 6px;
@@ -437,13 +440,15 @@ class HRVCard extends LitElement {
     .badge--on {
       background: var(--success-color, #4caf50);
       color: var(--primary-background-color, #fff);
-      padding: 2px 6px;
-      border-radius: 10px;
     }
 
     .badge--off {
       background: var(--disabled-background-color, rgba(0, 0, 0, 0.2));
       color: var(--disabled-text-color, var(--primary-text-color, #000));
+    }
+
+    .badge--on,
+    .badge--off {
       padding: 2px 6px;
       border-radius: 10px;
     }
