@@ -286,16 +286,16 @@ class HRVCard extends LitElement {
 
   // ── render helpers ─────────────────────────
 
-    private renderLabel(
-      cssClass: string,
-      entity: string,
-      value: number,
-      label: string,
-      unit: string = "°C",
-      labelClass: string = "label",
-      decimals: number = 1
-    ) {
-      return html`
+  private renderLabel(
+    cssClass: string,
+    entity: string,
+    value: number,
+    label: string,
+    unit: string = "°C",
+    labelClass: string = "label",
+    decimals: number = 1
+  ) {
+    return html`
         <div
           class="${labelClass} ${cssClass}"
           title=${label}
@@ -304,7 +304,7 @@ class HRVCard extends LitElement {
           ${value.toFixed(decimals)} ${unit}
         </div>
       `;
-    }
+  }
   private renderSensorChip(sensor: SensorConfig) {
     const { display, unit, isBinary, isOn } = this.getSensorDisplayInfo(sensor);
     const badgeClass = isBinary ? (isOn ? "badge--on" : "badge--off") : "";
@@ -358,8 +358,8 @@ class HRVCard extends LitElement {
             ${this.renderLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust temperature")}
             
             ${this.config.supply_flow ? this.renderLabel(
-              "supply-flow", 
-              this.config.supply_flow, 
+              "supply-flow",
+              this.config.supply_flow,
               this.getNumericState(this.config.supply_flow),
               "Supply flow rate",
               this.getEntityAttribute<string>(this.config.supply_flow, "unit_of_measurement") || "m³/h",
@@ -368,8 +368,8 @@ class HRVCard extends LitElement {
             ) : ""}
             
             ${this.config.exhaust_flow ? this.renderLabel(
-              "exhaust-flow", 
-              this.config.exhaust_flow, 
+              "exhaust-flow",
+              this.config.exhaust_flow,
               this.getNumericState(this.config.exhaust_flow),
               "Exhaust flow rate",
               this.getEntityAttribute<string>(this.config.exhaust_flow, "unit_of_measurement") || "m³/h",
@@ -389,7 +389,9 @@ class HRVCard extends LitElement {
   static styles = css`
     ha-card {
       overflow: hidden;
+      font-family: var(--primary-font-family, var(--ha-font-family-body, inherit));
     }
+
     .mini-header {
       padding: 12px 16px 4px;
       display: flex;
@@ -397,7 +399,8 @@ class HRVCard extends LitElement {
     }
 
     .mini-title {
-      font-size: 16px;
+      font-family: var(--ha-card-header-font-family, var(--primary-font-family, inherit));
+      font-size: var(--ha-card-header-font-size, 16px);
       font-weight: 500;
       color: var(--secondary-text-color);
       opacity: 0.9;
@@ -429,6 +432,7 @@ class HRVCard extends LitElement {
       padding: 2px 6px;
       border-radius: 6px;
       cursor: pointer;
+      font-family: inherit;
     }
 
     .outdoor { top: 7%; left: 3%; }
@@ -439,17 +443,19 @@ class HRVCard extends LitElement {
     .flow-label {
       position: absolute;
       font-size: clamp(10px, 1vw, 12px);
-      font-weight: 600;
-      color: var(--secondary-text-color);
+      font-weight: 400;
+      letter-spacing: 0.4px;
+      color: var(--primary-text-color);
       opacity: 0.8;
       pointer-events: auto;
       cursor: pointer;
       text-align: center;
       left: 4%;
+      font-family: inherit;
     }
 
-    .supply-flow { top: 37%}
-    .exhaust-flow { bottom: 2%}
+    .supply-flow  { top: 37%; }
+    .exhaust-flow { bottom: 2%; }
 
     .sensor-row {
       display: flex;
@@ -466,6 +472,7 @@ class HRVCard extends LitElement {
       border-radius: 8px;
       background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
       cursor: pointer;
+      font-family: inherit;
     }
 
     .sensor-label {
@@ -504,10 +511,3 @@ if (!customElements.get("hrv-card")) {
   customElements.define("hrv-card", HRVCard);
 }
 
-window.customCards ??= [];
-window.customCards.push({
-  type: "hrv-card",
-  name: "HRV Card",
-  description: "Heat Recovery Ventilation visualization card",
-  preview: true,
-});

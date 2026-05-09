@@ -64,6 +64,8 @@ outdoor_temp: sensor.outdoor_temperature
 supply_temp: sensor.hrv_supply_temperature
 extract_temp: sensor.hrv_extract_temperature
 exhaust_temp: sensor.hrv_exhaust_temperature
+supply_flow: sensor.hrv_supply_flow
+exhaust_flow: sensor.hrv_exhaust_flow
 sensors:
   - entity: binary_sensor.hrv_bypass
     label: Bypass
