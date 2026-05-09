@@ -387,6 +387,10 @@ class HRVCard extends LitElement {
   // ── styles ─────────────────────────────────
 
   static styles = css`
+    :host {
+      font-family: var(--primary-font-family);
+    }
+
     ha-card {
       overflow: hidden;
       font-family: var(--primary-font-family, var(--ha-font-family-body, inherit));
@@ -432,7 +436,6 @@ class HRVCard extends LitElement {
       padding: 2px 6px;
       border-radius: 6px;
       cursor: pointer;
-      font-family: inherit;
     }
 
     .outdoor { top: 7%; left: 3%; }
@@ -451,7 +454,6 @@ class HRVCard extends LitElement {
       cursor: pointer;
       text-align: center;
       left: 4%;
-      font-family: inherit;
     }
 
     .supply-flow  { top: 37%; }
@@ -472,7 +474,6 @@ class HRVCard extends LitElement {
       border-radius: 8px;
       background: var(--secondary-background-color, rgba(0, 0, 0, 0.06));
       cursor: pointer;
-      font-family: inherit;
     }
 
     .sensor-label {
