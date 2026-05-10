@@ -15,7 +15,7 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 
 ## 📸 Preview
 
-![HRV Card Preview](docs/preview.png)
+![HRV Card Preview](docs/preview.gif)
 
 ## 📦 Installation
 
