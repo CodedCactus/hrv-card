@@ -210,10 +210,15 @@ class Particle {
   /** Each entry: [canvasX, canvasY, pathT] – pathT drives color per segment. */
   tail: Array<[number, number, number]> = [];
 
+  svgPath: SVGPathElement;
+  private colorFn: (t: number) => RGB;
+
   constructor(
-    readonly svgPath: SVGPathElement,
-    private readonly colorFn: (t: number) => RGB
+    svgPath: SVGPathElement,
+    colorFn: (t: number) => RGB
   ) {
+    this.svgPath = svgPath;
+    this.colorFn = colorFn;
     this.reset(true);
   }
 
@@ -294,25 +299,6 @@ class Particle {
 // ─────────────────────────────────────────────
 // Mask path builder
 // ─────────────────────────────────────────────
-
-/**
- * Build a canvas Path2D that represents the cutout region from the SVG
- * curveMask, scaled from SVG space to canvas pixel space.
- *
- * The SVG mask shows path1 everywhere EXCEPT inside the black polygon.
- * We replicate this by drawing path1 particles to an offscreen canvas,
- * then erasing the cutout region with `destination-out`, and finally
- * compositing the result onto the main canvas.
- */
-function buildMaskCutoutPath(scaleX: number, scaleY: number): Path2D {
-  // Parse the SVG path d-string into a Path2D, then apply the scale
-  // transform so the shape maps to canvas pixels.
-  const raw = new Path2D(MASK_CUTOUT_D);
-
-  // DOMMatrix to scale from SVG units to canvas pixels
-  const matrix = new DOMMatrix([scaleX, 0, 0, scaleY, 0, 0]);
-  return new Path2D(raw); // we'll apply the transform via ctx.setTransform below
-}
 
 // ─────────────────────────────────────────────
 // Component
@@ -655,13 +641,14 @@ class HRVCard extends LitElement {
     decimals: number = 1
   ) {
     if (labelClass === "flow-label") {
-      // Flow rate pill: compact, monospaced value + unit
+      // Flow rate: background pill shaped to match the stroke height, text centred within
       return html`
         <div
           class="flow-label ${cssClass}"
           title=${label}
           @click=${() => this.handleMoreInfo(entity)}
         >
+          <div class="flow-bg"></div>
           <span class="flow-value">${value.toFixed(decimals)}</span>
           <span class="flow-unit">${unit}</span>
         </div>
@@ -914,40 +901,79 @@ class HRVCard extends LitElement {
 
     /* ── Flow labels ──────────────────────────── */
 
+    /*
+     * Each flow label is positioned at the vertical centre of its stroke.
+     * The .flow-bg child is a pill whose height matches the stroke (90/640 = 14.0625%
+     * of .wrap height), achieved by anchoring it to the wrap via absolute positioning
+     * from the label's own stacking context. The text is centred on top.
+     *
+     * Stroke centre y:  path1 = 185/640 = 28.906%,  path2 = 516/640 = 80.625%
+     */
     .flow-label {
       position: absolute;
       display: inline-flex;
-      align-items: baseline;
-      gap: 3px;
-      padding: 3px 8px;
-      border-radius: 20px;
-      background: var(--ha-card-background, var(--card-background-color, #fff));
-      border: 1px solid var(--divider-color, rgba(0,0,0,0.08));
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      align-items: flex-end;
+      gap: 4px;
       pointer-events: auto;
       cursor: pointer;
-      transition: box-shadow 0.15s ease;
+      top: 0;
+      height: 100%;
+      padding-bottom: 6px;
     }
 
-    .flow-label:hover {
-      box-shadow: 0 2px 8px rgba(0,0,0,0.14);
+    .flow-bg {
+      position: absolute;
+      inset-block: 0;
+      left: -10px;
+      right: -10px;
+      border-radius: 0 999px 999px 0;
+      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 35%, transparent);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1px solid color-mix(in srgb, var(--divider-color, #fff) 20%, transparent);
+      border-left: none;
+      pointer-events: none;
+    }
+
+    .flow-label:hover .flow-bg {
+      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 55%, transparent);
     }
 
     .flow-value {
-      font-size: clamp(11px, 1.1vw, 14px);
-      font-weight: 600;
-      color: var(--primary-text-color);
-      letter-spacing: -0.01em;
+      position: relative;
+      font-size: clamp(10px, 1vw, 13px);
+      font-weight: 500;
+      color: #fff;
+      letter-spacing: 0;
+      opacity: 0.55;
     }
 
     .flow-unit {
-      font-size: clamp(9px, 0.85vw, 11px);
+      position: relative;
+      font-size: clamp(8px, 0.8vw, 10px);
       font-weight: 400;
-      color: var(--secondary-text-color);
+      color: #fff;
+      opacity: 0.35;
     }
 
-    .supply-flow  { top: 34%;    left: 3%; }
-    .exhaust-flow { bottom: 3%;  left: 3%; }
+    /*
+     * Positioning: centred on stroke y, left-aligned with temp labels.
+     * Stroke centres: path1 y=185/640=28.906%, path2 y=516/640=80.625%
+     * Height of label matches stroke: 90/640=14.0625% of wrap — applied via
+     * explicit height so the pill pill covers the full stroke band.
+     */
+    .supply-flow {
+      left: 3%;
+      top: 28.906%;
+      height: 14.0625%;
+      transform: translateY(-50%);
+    }
+    .exhaust-flow {
+      left: 3%;
+      top: 80.625%;
+      height: 14.0625%;
+      transform: translateY(-50%);
+    }
 
     /* ── Sensor row ───────────────────────────── */
 
