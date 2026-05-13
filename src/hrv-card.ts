@@ -1,5 +1,4 @@
 import { LitElement, html, css } from "lit";
-import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import hrvSvg from "./assets/card.svg?raw";
 
 // ─────────────────────────────────────────────
@@ -67,6 +66,39 @@ const COLOR_STOPS: RGB[] = [
 ];
 
 // ─────────────────────────────────────────────
+// Module-level SVG cache
+// ─────────────────────────────────────────────
+
+/**
+ * Parse the SVG string once at module load and cache the resulting element.
+ * Every card instance clones this node rather than re-parsing the string.
+ */
+const _svgTemplate = ((): SVGSVGElement => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(hrvSvg, "image/svg+xml");
+  return doc.querySelector("svg") as SVGSVGElement;
+})();
+
+// ─────────────────────────────────────────────
+// Gradient stop references (per card instance)
+// ─────────────────────────────────────────────
+
+/** Holds direct references to the 4 stop elements inside each gradient. */
+interface GradientStops {
+  path1: SVGStopElement[];
+  path2: SVGStopElement[];
+}
+
+function queryGradientStops(svg: SVGSVGElement): GradientStops {
+  const stopsOf = (id: string): SVGStopElement[] =>
+    Array.from(svg.querySelectorAll<SVGStopElement>(`#${id} stop`));
+  return {
+    path1: stopsOf(GRADIENT_IDS.path1),
+    path2: stopsOf(GRADIENT_IDS.path2),
+  };
+}
+
+// ─────────────────────────────────────────────
 // Pure colour utilities
 // ─────────────────────────────────────────────
 
@@ -102,23 +134,18 @@ function buildGradientTemps(
   return [start, lerp(start, end, 0.33), lerp(start, end, 0.66), end];
 }
 
-function applyGradient(
-  svg: SVGElement,
-  gradientId: string,
+/**
+ * Update the stop colours for one gradient by mutating only `stop-color`
+ * attributes on the already-live stop elements.  No innerHTML, no queries.
+ */
+function applyGradientToStops(
+  stops: SVGStopElement[],
   temps: number[],
   normalise: (t: number) => number
 ): void {
-  const grad = svg.querySelector<SVGLinearGradientElement>(`#${gradientId}`);
-  if (!grad) return;
-
-  grad.innerHTML = "";
-
-  temps.forEach((temp, i) => {
-    const stop = document.createElementNS("http://www.w3.org/2000/svg", "stop");
-    stop.setAttribute("offset", `${(i / (temps.length - 1)) * 100}%`);
-    stop.setAttribute("stop-color", tempToColor(normalise(temp)));
-    grad.appendChild(stop);
-  });
+  for (let i = 0; i < stops.length; i++) {
+    stops[i].setAttribute("stop-color", tempToColor(normalise(temps[i])));
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -136,6 +163,9 @@ class HRVCard extends LitElement {
   private _hass?: HomeAssistant;
   config?: HRVCardConfig;
 
+  /** Cached references to the live <stop> elements inside this card's SVG. */
+  private _gradientStops?: GradientStops;
+
   // ── hass accessor ──────────────────────────
 
   set hass(value: HomeAssistant) {
@@ -147,22 +177,31 @@ class HRVCard extends LitElement {
       return;
     }
 
-    const trackedEntities = [
+    const tempEntities = [
       this.config.outdoor_temp,
       this.config.supply_temp,
       this.config.extract_temp,
       this.config.exhaust_temp,
+    ];
+
+    const otherEntities = [
       ...(this.config.supply_flow  ? [this.config.supply_flow]  : []),
       ...(this.config.exhaust_flow ? [this.config.exhaust_flow] : []),
       ...(this.config.sensors?.map((s) => s.entity) ?? []),
     ];
 
-    const hasChanged = trackedEntities.some(
-      (entity) =>
-        previous?.states[entity]?.state !== value.states[entity]?.state
+    const tempChanged = tempEntities.some(
+      (e) => previous?.states[e]?.state !== value.states[e]?.state
+    );
+    const otherChanged = otherEntities.some(
+      (e) => previous?.states[e]?.state !== value.states[e]?.state
     );
 
-    if (hasChanged) this.requestUpdate();
+    // Gradient colours only need a direct DOM update — no Lit re-render.
+    if (tempChanged) this.updateSvgGradients();
+
+    // Only trigger a full Lit re-render when non-temperature entities change.
+    if (otherChanged) this.requestUpdate();
   }
 
   get hass(): HomeAssistant | undefined {
@@ -250,22 +289,23 @@ class HRVCard extends LitElement {
   // ── lifecycle ──────────────────────────────
 
   protected firstUpdated(): void {
-    this.updateSvgGradients();
-  }
+    // Clone the module-level parsed SVG and insert it once, imperatively.
+    // Lit will never touch this node again.
+    const svgClone = _svgTemplate.cloneNode(true) as SVGSVGElement;
+    const container = this.renderRoot.querySelector<HTMLElement>(".svg-container");
+    container?.appendChild(svgClone);
 
-  protected updated(changedProps: Map<string, unknown>): void {
-    if (changedProps.has("_hass")) {
-      this.updateSvgGradients();
-    }
+    // Cache the stop elements directly so future updates are O(1) attribute sets.
+    this._gradientStops = queryGradientStops(svgClone);
+
+    // Apply initial gradient colours.
+    this.updateSvgGradients();
   }
 
   // ── SVG gradients ──────────────────────────
 
   private updateSvgGradients(): void {
-    if (!this.config) return;
-
-    const svg = this.renderRoot.querySelector<SVGElement>("svg");
-    if (!svg) return;
+    if (!this.config || !this._gradientStops) return;
 
     const outdoor = this.getNumericState(this.config.outdoor_temp);
     const supply  = this.getNumericState(this.config.supply_temp);
@@ -273,17 +313,16 @@ class HRVCard extends LitElement {
     const exhaust = this.getNumericState(this.config.exhaust_temp);
 
     const path1Temps = buildGradientTemps(outdoor, supply);
-    const path2Temps = buildGradientTemps(exhaust,  extract);
+    const path2Temps = buildGradientTemps(exhaust, extract);
 
     const allTemps = [...path1Temps, ...path2Temps];
     const minTemp  = Math.min(...allTemps);
     const maxTemp  = Math.max(...allTemps);
     const range    = Math.max(maxTemp - minTemp, 0.1);
-
     const normalise = (t: number) => (t - minTemp) / range;
 
-    applyGradient(svg, GRADIENT_IDS.path1, path1Temps, normalise);
-    applyGradient(svg, GRADIENT_IDS.path2, path2Temps, normalise);
+    applyGradientToStops(this._gradientStops.path1, path1Temps, normalise);
+    applyGradientToStops(this._gradientStops.path2, path2Temps, normalise);
   }
 
   // ── render helpers ─────────────────────────
@@ -367,7 +406,7 @@ class HRVCard extends LitElement {
         </div>
 
         <div class="wrap">
-          <div class="svg">${unsafeSVG(hrvSvg)}</div>
+          <div class="svg-container"></div>
           <div class="vignette"></div>
 
           <div class="overlay">
@@ -434,14 +473,14 @@ class HRVCard extends LitElement {
       opacity: 0.7;
     }
 
-    /* ── Wrap + vignette ──────────────────────── */
+    /* ── Wrap + svg-container ─────────────────── */
 
     .wrap {
       position: relative;
       width: 100%;
     }
 
-    .svg svg {
+    .svg-container svg {
       width: 100%;
       height: auto;
       display: block;
