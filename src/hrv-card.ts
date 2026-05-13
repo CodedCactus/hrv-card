@@ -22,7 +22,7 @@ export interface HRVCardConfig {
   exhaust_temp: string;
   supply_flow?: string;
   exhaust_flow?: string;
-  sensors: SensorConfig[];
+  sensors?: SensorConfig[];
 }
 
 interface SensorConfig {
@@ -166,6 +166,13 @@ class HRVCard extends LitElement {
   /** Cached references to the live <stop> elements inside this card's SVG. */
   private _gradientStops?: GradientStops;
 
+  /**
+   * All tracked entity IDs. Any state change triggers a re-render; temp entity
+   * changes also update the SVG gradients (via updated()).
+   * Computed once in setConfig.
+   */
+  private _trackedEntities: string[] = [];
+
   // ── hass accessor ──────────────────────────
 
   set hass(value: HomeAssistant) {
@@ -177,31 +184,11 @@ class HRVCard extends LitElement {
       return;
     }
 
-    const tempEntities = [
-      this.config.outdoor_temp,
-      this.config.supply_temp,
-      this.config.extract_temp,
-      this.config.exhaust_temp,
-    ];
-
-    const otherEntities = [
-      ...(this.config.supply_flow  ? [this.config.supply_flow]  : []),
-      ...(this.config.exhaust_flow ? [this.config.exhaust_flow] : []),
-      ...(this.config.sensors?.map((s) => s.entity) ?? []),
-    ];
-
-    const tempChanged = tempEntities.some(
-      (e) => previous?.states[e]?.state !== value.states[e]?.state
-    );
-    const otherChanged = otherEntities.some(
+    const hasChanged = this._trackedEntities.some(
       (e) => previous?.states[e]?.state !== value.states[e]?.state
     );
 
-    // Gradient colours only need a direct DOM update — no Lit re-render.
-    if (tempChanged) this.updateSvgGradients();
-
-    // Only trigger a full Lit re-render when non-temperature entities change.
-    if (otherChanged) this.requestUpdate();
+    if (hasChanged) this.requestUpdate();
   }
 
   get hass(): HomeAssistant | undefined {
@@ -223,13 +210,21 @@ class HRVCard extends LitElement {
       }
     }
 
-    if (!Array.isArray(config.sensors)) {
-      throw new Error('HRV Card requires a "sensors" array.');
-    }
-
     this.config = { ...config };
+
+    // Cache tracked entities so the hass setter never allocates on each call.
+    this._trackedEntities = [
+      config.outdoor_temp,
+      config.supply_temp,
+      config.extract_temp,
+      config.exhaust_temp,
+      ...(config.supply_flow  ? [config.supply_flow]  : []),
+      ...(config.exhaust_flow ? [config.exhaust_flow] : []),
+      ...(config.sensors?.map((s) => s.entity) ?? []),
+    ];
   }
 
+  /** Approximate rendered row count; used by HA's card-size layout system. */
   getCardSize(): number {
     return 3;
   }
@@ -298,8 +293,12 @@ class HRVCard extends LitElement {
     // Cache the stop elements directly so future updates are O(1) attribute sets.
     this._gradientStops = queryGradientStops(svgClone);
 
-    // Apply initial gradient colours.
-    this.updateSvgGradients();
+    // Apply initial gradient colours if hass data is already available.
+    if (this._hass) this.updateSvgGradients();
+  }
+
+  protected updated(changedProps: Map<string, unknown>): void {
+    if (changedProps.has("_hass")) this.updateSvgGradients();
   }
 
   // ── SVG gradients ──────────────────────────
@@ -313,6 +312,7 @@ class HRVCard extends LitElement {
     const exhaust = this.getNumericState(this.config.exhaust_temp);
 
     const path1Temps = buildGradientTemps(outdoor, supply);
+    // Path 2 runs right-to-left (extract→exhaust), so args are swapped.
     const path2Temps = buildGradientTemps(exhaust, extract);
 
     const allTemps = [...path1Temps, ...path2Temps];
