@@ -27,8 +27,9 @@ export interface HRVCardConfig {
 interface SensorConfig {
   entity: string;
   label?: string;
-  format?: "binary" | "text";
+  format?: "binary" | "text" | "number";
   unit?: string;
+  decimals?: number;
 }
 
 interface SensorDisplayInfo {
@@ -36,6 +37,7 @@ interface SensorDisplayInfo {
   unit: string;
   isBinary: boolean;
   isOn: boolean;
+  isHeat: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -218,6 +220,7 @@ class HRVCard extends LitElement {
     const isBinary =
       sensor.format === "binary" || state === "on" || state === "off";
     const isOpening = deviceClass === "opening";
+    const isHeat = deviceClass === "heat";
     const isOn = state === "on";
 
     let display: string;
@@ -225,12 +228,16 @@ class HRVCard extends LitElement {
       display = isOn
         ? (isOpening ? "Open"   : "On")
         : (isOpening ? "Closed" : "Off");
+    } else if (sensor.format === "number") {
+      const num = Number(state);
+      const decimals = sensor.decimals ?? 1;
+      display = Number.isNaN(num) ? state : num.toFixed(decimals);
     } else {
       const num = Number(state);
       display = Number.isNaN(num) ? state : num.toFixed(1);
     }
 
-    return { display, unit, isBinary, isOn };
+    return { display, unit, isBinary, isOn, isHeat };
   }
 
   // ── event dispatch ─────────────────────────
@@ -320,10 +327,18 @@ class HRVCard extends LitElement {
   }
 
   private renderSensorChip(sensor: SensorConfig) {
-    const { display, unit, isBinary, isOn } = this.getSensorDisplayInfo(sensor);
+    const { display, unit, isBinary, isOn, isHeat } = this.getSensorDisplayInfo(sensor);
     const label =
       sensor.label ??
       (sensor.entity.split(".").pop() ?? sensor.entity).replace(/_/g, " ");
+
+    const dotClass = isBinary
+      ? isHeat && isOn
+        ? "dot--heat"
+        : isOn
+        ? "dot--on"
+        : "dot--off"
+      : "";
 
     return html`
       <div
@@ -331,7 +346,7 @@ class HRVCard extends LitElement {
         title=${sensor.entity}
         @click=${() => this.handleMoreInfo(sensor.entity)}
       >
-        ${isBinary ? html`<span class="sensor-dot ${isOn ? "dot--on" : "dot--off"}"></span>` : ""}
+        ${isBinary ? html`<span class="sensor-dot ${dotClass}"></span>` : ""}
         <span class="sensor-label">${label}</span>
         <span class="sensor-value ${isBinary ? (isOn ? "badge--on" : "badge--off") : ""}">
           ${display}${!isBinary && unit ? html`<span class="sensor-unit"> ${unit}</span>` : ""}
@@ -555,6 +570,7 @@ class HRVCard extends LitElement {
     }
 
     .dot--on  { background: var(--success-color, #4caf50); box-shadow: 0 0 4px var(--success-color, #4caf50); }
+    .dot--heat { background: var(--error-color, #f44336); box-shadow: 0 0 4px var(--error-color, #f44336); }
     .dot--off { background: var(--disabled-color, rgba(0,0,0,0.25)); }
 
     .sensor-label {

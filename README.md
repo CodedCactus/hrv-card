@@ -96,7 +96,8 @@ Each sensor in the `sensors` array supports:
 |--------|----------|------|-------------|
 | `entity` | Yes | string | Entity ID of the sensor |
 | `label` | No | string | Display label (defaults to entity name) |
-| `format` | No | string | Display format: `"binary"` or `"text"` (auto-detected) |
+| `format` | No | string | Display format: `"binary"`, `"text"`, or `"number"` (auto-detected) |
+| `decimals` | No | number | Decimal places for `"number"` format (default: 1) |
 | `unit` | No | string | Unit to display (auto-detected from entity) |
 
 ## 🔧 Development
