@@ -21,8 +21,6 @@ export interface HRVCardConfig {
   supply_temp: string;
   extract_temp: string;
   exhaust_temp: string;
-  supply_flow?: string;
-  exhaust_flow?: string;
   sensors?: SensorConfig[];
 }
 
@@ -178,8 +176,6 @@ class HRVCard extends LitElement {
       config.supply_temp,
       config.extract_temp,
       config.exhaust_temp,
-      ...(config.supply_flow  ? [config.supply_flow]  : []),
-      ...(config.exhaust_flow ? [config.exhaust_flow] : []),
       ...(config.sensors?.map((s) => s.entity) ?? []),
     ];
   }
