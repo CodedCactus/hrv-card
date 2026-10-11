@@ -98,6 +98,11 @@ function applyGradientToStops(
   temps: number[],
   normalise: (t: number) => number
 ): void {
+  if (stops.length !== temps.length) {
+    throw new Error(
+      `Gradient stop/temperature count mismatch: ${stops.length} stops vs ${temps.length} temps.`
+    );
+  }
   for (let i = 0; i < stops.length; i++) {
     stops[i].setAttribute("stop-color", tempToColor(normalise(temps[i])));
   }
@@ -186,10 +191,16 @@ class HRVCard extends LitElement {
 
   // ── state helpers ──────────────────────────
 
-  private getNumericState(entity: string): number {
+  /**
+   * Read an entity's state as a number.
+   * Returns `null` when the entity is missing or its state is not numeric,
+   * so callers can distinguish "unavailable" from a genuine `0`.
+   */
+  private getNumericState(entity: string): number | null {
     const raw = this._hass?.states?.[entity]?.state;
+    if (raw === undefined || raw === null) return null;
     const num = Number(raw);
-    return Number.isNaN(num) ? 0 : num;
+    return Number.isNaN(num) ? null : num;
   }
 
   private getEntityAttribute<T>(entity: string, attribute: string): T | undefined {
@@ -266,6 +277,12 @@ class HRVCard extends LitElement {
     const extract = this.getNumericState(this.config.extract_temp);
     const exhaust = this.getNumericState(this.config.exhaust_temp);
 
+    // If any temperature is unavailable, leave the gradients in their last
+    // known state rather than collapsing them around a bogus 0.
+    if (outdoor === null || supply === null || extract === null || exhaust === null) {
+      return;
+    }
+
     const path1Temps = buildGradientTemps(outdoor, supply);
     // Path 2 runs right-to-left (extract→exhaust), so args are swapped.
     const path2Temps = buildGradientTemps(exhaust, extract);
@@ -285,12 +302,14 @@ class HRVCard extends LitElement {
   private renderLabel(
     cssClass: string,
     entity: string,
-    value: number,
+    value: number | null,
     label: string,
     unit: string = "°C",
     labelClass: string = "label",
     decimals: number = 1
   ) {
+    const text = value === null ? "—" : value.toFixed(decimals);
+
     if (labelClass === "flow-label") {
       return html`
         <div
@@ -299,7 +318,7 @@ class HRVCard extends LitElement {
           @click=${() => this.handleMoreInfo(entity)}
         >
           <div class="flow-bg"></div>
-          <span class="flow-value">${value.toFixed(decimals)}</span>
+          <span class="flow-value">${text}</span>
           <span class="flow-unit">${unit}</span>
         </div>
       `;
@@ -311,7 +330,7 @@ class HRVCard extends LitElement {
         title=${label}
         @click=${() => this.handleMoreInfo(entity)}
       >
-        <span class="temp-row"><span class="temp-value">${value.toFixed(decimals)}</span><span class="temp-unit">${unit}</span></span>
+        <span class="temp-row"><span class="temp-value">${text}</span><span class="temp-unit">${unit}</span></span>
         <span class="temp-name">${label}</span>
       </div>
     `;
@@ -319,7 +338,9 @@ class HRVCard extends LitElement {
 
   private renderSensorChip(sensor: SensorConfig) {
     const { display, unit, isBinary, isOn } = this.getSensorDisplayInfo(sensor);
-    const label = sensor.label ?? sensor.entity.split(".")[1].replace(/_/g, " ");
+    const label =
+      sensor.label ??
+      (sensor.entity.split(".").pop() ?? sensor.entity).replace(/_/g, " ");
 
     return html`
       <div
