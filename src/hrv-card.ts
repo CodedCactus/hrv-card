@@ -161,7 +161,8 @@ class HRVCard extends LitElement {
     }
 
     for (const key of REQUIRED_CONFIG_KEYS) {
-      if (!config[key]) {
+      const value = config[key];
+      if (typeof value !== "string" || value.trim() === "") {
         throw new Error(
           `HRV Card is missing required field: "${key}". Required fields: ${REQUIRED_CONFIG_KEYS.join(", ")}.`
         );
