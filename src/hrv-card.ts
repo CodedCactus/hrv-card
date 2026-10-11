@@ -182,7 +182,8 @@ class HRVCard extends LitElement {
 
   /** Approximate rendered row count; used by HA's card-size layout system. */
   getCardSize(): number {
-    return 3;
+    // Header (1) + SVG/overlay block (1) + sensor row (1 when configured).
+    return 2 + (this.config?.sensors?.length ? 1 : 0);
   }
 
   // ── state helpers ──────────────────────────
