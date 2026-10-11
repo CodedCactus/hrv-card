@@ -1,4 +1,5 @@
 import "./hrv-card";
+import { VERSION } from "./version";
 
 window.customCards ??= [];
 window.customCards.push({
@@ -9,7 +10,7 @@ window.customCards.push({
 });
 
 console.info(
-    "%c HRV-CARD %c v".concat("0.1.0"," "),
+    `%c HRV-CARD %c v${VERSION} `,
     "color: orange; font-weight: bold; background: black",
     "color: white; font-weight: bold; background: dimgray"
 );

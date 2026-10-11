@@ -54,7 +54,7 @@ jobs:
 
       - name: Inject version
         run: |
-          echo "export const VERSION = '${{ steps.version.outputs.version }}';" > src/version.js
+          echo "export const VERSION = '${{ steps.version.outputs.version }}';" > src/version.ts
 
       - name: Type check
         run: npm run typecheck
