@@ -301,24 +301,9 @@ class HRVCard extends LitElement {
     value: number | null,
     label: string,
     unit: string = "°C",
-    labelClass: string = "label",
     decimals: number = 1
   ) {
     const text = value === null ? "—" : value.toFixed(decimals);
-
-    if (labelClass === "flow-label") {
-      return html`
-        <div
-          class="flow-label ${cssClass}"
-          title=${label}
-          @click=${() => this.handleMoreInfo(entity)}
-        >
-          <div class="flow-bg"></div>
-          <span class="flow-value">${text}</span>
-          <span class="flow-unit">${unit}</span>
-        </div>
-      `;
-    }
 
     return html`
       <div
@@ -536,68 +521,6 @@ class HRVCard extends LitElement {
       top: calc(73.594% - 4px);
       transform: translateY(-100%);
       align-items: flex-end;
-    }
-
-    /* ── Flow labels ──────────────────────────── */
-
-    .flow-label {
-      position: absolute;
-      display: inline-flex;
-      align-items: flex-end;
-      gap: 4px;
-      pointer-events: auto;
-      cursor: pointer;
-      top: 0;
-      height: 100%;
-      padding-bottom: 6px;
-    }
-
-    .flow-bg {
-      position: absolute;
-      inset-block: 0;
-      left: -10px;
-      right: -10px;
-      border-radius: 0 999px 999px 0;
-      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 35%, transparent);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      border: 1px solid color-mix(in srgb, var(--divider-color, #fff) 20%, transparent);
-      border-left: none;
-      pointer-events: none;
-    }
-
-    .flow-label:hover .flow-bg {
-      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 55%, transparent);
-    }
-
-    .flow-value {
-      position: relative;
-      font-size: clamp(10px, 1vw, 13px);
-      font-weight: 500;
-      color: #fff;
-      letter-spacing: 0;
-      opacity: 0.55;
-    }
-
-    .flow-unit {
-      position: relative;
-      font-size: clamp(8px, 0.8vw, 10px);
-      font-weight: 400;
-      color: #fff;
-      opacity: 0.35;
-    }
-
-    .supply-flow {
-      left: 3%;
-      top: 28.906%;
-      height: 14.0625%;
-      transform: translateY(-50%);
-    }
-    .exhaust-flow {
-      left: 3%;
-      top: 80.625%;
-      height: 14.0625%;
-      transform: translateY(-50%);
     }
 
     /* ── Sensor row ───────────────────────────── */

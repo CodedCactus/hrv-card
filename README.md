@@ -64,8 +64,6 @@ outdoor_temp: sensor.outdoor_temperature
 supply_temp: sensor.hrv_supply_temperature
 extract_temp: sensor.hrv_extract_temperature
 exhaust_temp: sensor.hrv_exhaust_temperature
-supply_flow: sensor.hrv_supply_flow
-exhaust_flow: sensor.hrv_exhaust_flow
 sensors:
   - entity: binary_sensor.hrv_bypass
     label: Bypass
@@ -88,8 +86,6 @@ sensors:
 | `supply_temp` | Yes | string | Entity ID for supply air temperature sensor |
 | `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
 | `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
-| `supply_flow` | No | string | Entity ID for supply air flow sensor |
-| `exhaust_flow` | No | string | Entity ID for exhaust air flow sensor |
 | `sensors` | No | array | Array of additional sensors to display |
 
 ### Sensor Configuration
