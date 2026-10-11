@@ -398,25 +398,23 @@ class HRVCard extends LitElement {
 
     ha-card {
       overflow: hidden;
+      border-radius: var(--ha-card-border-radius, var(--card-border-radius, 12px));
       font-family: var(--ha-card-header-font-family, var(--primary-font-family, var(--ha-font-family-body, inherit)));
     }
 
     /* ── Header ───────────────────────────────── */
 
     .mini-header {
-      padding: 14px 16px 0;
+      padding: 16px 16px 0;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
     .mini-title {
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--secondary-text-color);
-      opacity: 0.7;
+      color: var(--primary-text-color);
     }
 
     /* ── Wrap + svg-container ─────────────────── */
@@ -439,7 +437,7 @@ class HRVCard extends LitElement {
       z-index: 2;
       background:
         radial-gradient(ellipse 55% 60% at 50% 50%, transparent 40%, var(--ha-card-background, var(--card-background-color, #fff)) 100%);
-      opacity: 0.3;
+      opacity: 0.12;
     }
 
     .overlay {
@@ -473,10 +471,9 @@ class HRVCard extends LitElement {
 
     .temp-value {
       font-size: clamp(14px, 1.5vw, 19px);
-      font-weight: 700;
+      font-weight: 600;
       line-height: 1;
       color: var(--primary-text-color);
-      letter-spacing: -0.02em;
       transition: opacity 0.15s ease;
     }
 
@@ -531,7 +528,7 @@ class HRVCard extends LitElement {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      padding: 8px 12px 14px;
+      padding: 8px 16px 16px;
     }
 
     .sensor-chip {
@@ -540,14 +537,14 @@ class HRVCard extends LitElement {
       gap: 5px;
       padding: 5px 10px;
       border-radius: 20px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.04));
-      border: 1px solid var(--divider-color, rgba(0,0,0,0.06));
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
       cursor: pointer;
       transition: background 0.15s ease;
     }
 
     .sensor-chip:hover {
-      background: var(--secondary-background-color, rgba(0,0,0,0.08));
+      background: color-mix(in srgb, var(--primary-color) 8%, var(--secondary-background-color));
     }
 
     .sensor-dot {
@@ -569,7 +566,7 @@ class HRVCard extends LitElement {
 
     .sensor-value {
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       color: var(--primary-text-color);
     }
 
