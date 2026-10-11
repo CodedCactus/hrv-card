@@ -1,5 +1,6 @@
-import { LitElement, html, css } from "lit";
+import { type TemplateResult, LitElement, html, css } from "lit";
 import hrvSvg from "./assets/card.svg?raw";
+import { tempToColor, buildGradientTemps } from "./color";
 
 // ─────────────────────────────────────────────
 // Types
@@ -39,8 +40,6 @@ interface SensorDisplayInfo {
   isOn: boolean;
 }
 
-type RGB = [number, number, number];
-
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
@@ -56,14 +55,6 @@ const GRADIENT_IDS = {
   path1: "gradientPath1",
   path2: "gradientPath2",
 } as const;
-
-/** Cool-to-warm colour ramp (blue → light blue → orange → red). */
-const COLOR_STOPS: RGB[] = [
-  [59, 76, 192],
-  [120, 180, 220],
-  [245, 160, 105],
-  [180, 4, 38],
-];
 
 // ─────────────────────────────────────────────
 // Module-level SVG cache
@@ -96,42 +87,6 @@ function queryGradientStops(svg: SVGSVGElement): GradientStops {
     path1: stopsOf(GRADIENT_IDS.path1),
     path2: stopsOf(GRADIENT_IDS.path2),
   };
-}
-
-// ─────────────────────────────────────────────
-// Pure colour utilities
-// ─────────────────────────────────────────────
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function clamp(value: number, min = 0, max = 1): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function lerpChannel(a: number, b: number, t: number): number {
-  return Math.round(lerp(a, b, t));
-}
-
-function tempToColor(normalised: number): string {
-  const t = clamp(normalised);
-  const segments = COLOR_STOPS.length - 1;
-  const scaled = t * segments;
-  const i = Math.floor(scaled);
-  const f = scaled - i;
-
-  const a = COLOR_STOPS[i];
-  const b = COLOR_STOPS[Math.min(i + 1, segments)];
-
-  return `rgb(${lerpChannel(a[0], b[0], f)},${lerpChannel(a[1], b[1], f)},${lerpChannel(a[2], b[2], f)})`;
-}
-
-function buildGradientTemps(
-  start: number,
-  end: number
-): [number, number, number, number] {
-  return [start, lerp(start, end, 0.33), lerp(start, end, 0.66), end];
 }
 
 /**
@@ -387,9 +342,15 @@ class HRVCard extends LitElement {
 
     return html`
       <div class="sensor-row">
-        ${sensors.map((s) => this.renderSensorChip(s))}
+        ${this._renderSensorChips(sensors)}
       </div>
     `;
+  }
+
+  /** Build the chip templates outside the render function so the template
+   * expression stays a plain array literal (avoids `.map` in markup). */
+  private _renderSensorChips(sensors: SensorConfig[]): TemplateResult[] {
+    return sensors.map((s) => this.renderSensorChip(s));
   }
 
   // ── render ─────────────────────────────────
@@ -415,25 +376,6 @@ class HRVCard extends LitElement {
             ${this.renderLabel("extract", extract_temp, this.getNumericState(extract_temp), "Extract")}
             ${this.renderLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust")}
 
-            ${this.config.supply_flow ? this.renderLabel(
-              "supply-flow",
-              this.config.supply_flow,
-              this.getNumericState(this.config.supply_flow),
-              "Supply flow",
-              this.getEntityAttribute<string>(this.config.supply_flow, "unit_of_measurement") || "m³/h",
-              "flow-label",
-              0
-            ) : ""}
-
-            ${this.config.exhaust_flow ? this.renderLabel(
-              "exhaust-flow",
-              this.config.exhaust_flow,
-              this.getNumericState(this.config.exhaust_flow),
-              "Exhaust flow",
-              this.getEntityAttribute<string>(this.config.exhaust_flow, "unit_of_measurement") || "m³/h",
-              "flow-label",
-              0
-            ) : ""}
           </div>
         </div>
 

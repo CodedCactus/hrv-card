@@ -137,8 +137,14 @@ npm run build:watch
 npm run preview
 
 # Type checking
-npm run typecheck
-```
+    npm run typecheck
+
+    # Linting
+    npm run lint
+
+    # Run tests
+    npm run test
+    ```
 
 ## 📄 License
 
