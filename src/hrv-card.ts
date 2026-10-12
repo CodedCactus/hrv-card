@@ -143,13 +143,18 @@ class HRVCard extends LitElement {
 /** Cached references to the live <stop> elements inside this card's SVG. */
   private _gradientStops?: GradientStops;
 
-  /** Group with mask for path 1 particles (top-left → bottom-right). */
-  private _particleGroup1?: SVGGElement;
-  /** Group without mask for path 2 particles (top-right → bottom-left). */
-  private _particleGroup2?: SVGGElement;
-
   /** Cached SVG path elements for particle animation. */
   private _flowPaths?: [SVGPathElement, SVGPathElement];
+
+  /** Precomputed path points for fast interpolation. */
+  private _pathPoints: { points: { x: number; y: number; tx: number; ty: number }[]; length: number }[] = [];
+
+  /** Canvas for particle rendering. */
+  private _canvas?: HTMLCanvasElement;
+  private _canvasCtx?: CanvasRenderingContext2D;
+
+  /** Mask path for canvas clipping (from SVG mask). */
+  private _maskPath?: Path2D;
 
   /** Particle animation state. */
   private _particles: Particle[] = [];
@@ -301,22 +306,51 @@ class HRVCard extends LitElement {
     if (path1 && path2) {
       this._flowPaths = [path1, path2];
       this._pathLengths = [path1.getTotalLength(), path2.getTotalLength()];
+
+      // Precompute path points for fast interpolation.
+      const SAMPLE_COUNT = 100;
+      for (let i = 0; i < 2; i++) {
+        const path = this._flowPaths[i];
+        const length = this._pathLengths[i];
+        const points: { x: number; y: number; tx: number; ty: number }[] = [];
+        for (let j = 0; j <= SAMPLE_COUNT; j++) {
+          const progress = j / SAMPLE_COUNT;
+          const len = progress * length;
+          const pt = path.getPointAtLength(len);
+          const nextLen = Math.min(len + 1, length);
+          const nextPt = path.getPointAtLength(nextLen);
+          const dx = nextPt.x - pt.x;
+          const dy = nextPt.y - pt.y;
+          const tangentLen = Math.hypot(dx, dy) || 1;
+          points.push({ x: pt.x, y: pt.y, tx: dx / tangentLen, ty: dy / tangentLen });
+        }
+        this._pathPoints.push({ points, length });
+      }
+
+      // Create canvas inside SVG (as sibling to paths) for perfect alignment.
+      const canvas = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+      canvas.setAttribute("width", "100%");
+      canvas.setAttribute("height", "100%");
+      canvas.setAttribute("x", "0");
+      canvas.setAttribute("y", "0");
+      canvas.setAttribute("pointer-events", "none");
+
+      const htmlCanvas = document.createElement("canvas");
+      htmlCanvas.style.width = "100%";
+      htmlCanvas.style.height = "100%";
+      htmlCanvas.style.display = "block";
+      canvas.appendChild(htmlCanvas);
+
+      svgClone.appendChild(canvas);
+      this._canvas = htmlCanvas;
+      this._canvasCtx = htmlCanvas.getContext("2d")!;
+
+      // Store mask path for canvas clipping (path9 from SVG mask).
+      const maskPathData = `m 1273.9551,128.39258 c -32.0637,0.58284 -64.2021,4.24638 -95.177,12.74756 -27.6382,7.50585 -54.2017,18.53026 -79.8197,31.25211 -3.304,1.61358 -6.583,3.1479 -9.8971,4.64693 -9.4165,4.22773 -18.8683,8.37419 -28.2909,12.58876 -173.97544,77.35812 -347.94584,154.7278 -521.92448,232.07869 -14.0354,6.10129 -28.11932,12.11071 -42.47092,17.43595 -2.33738,0.86672 -4.90909,1.79684 -7.25,2.62304 -12.65767,4.43483 -25.45548,8.30162 -38.63813,11.06951 -1.20711,0.23826 -2.51848,0.51874 -3.7589,0.75152 -3.92058,0.76101 -7.86027,1.42066 -11.81,2.01101 -1.15512,0.15932 -2.40872,0.35404 -3.57538,0.50199 -10.0584,1.34122 -20.21971,2.07689 -30.39554,2.4725 -16.58735,0.63549 -33.28867,0.38907 -49.92752,0.39986 -104.49023,-0.1153 -208.98047,-0.23191 -313.470702,-0.34701 -0.04109,38 -0.08391,76 -0.125,114 115.416492,0.12179 230.833112,0.24509 346.249572,0.32646 33.67553,-0.39328 67.41881,-3.8015 100.17893,-11.78258 37.57577,-9.01861 73.71283,-23.09878 108.98499,-38.71061 34.56098,-15.29015 69.06914,-30.70181 103.60763,-46.04392 148.81735,-66.1912 297.63855,-132.37436 446.45345,-198.5706 8.8478,-4.44955 17.7053,-8.88423 26.7012,-13.0293 14.7424,-6.76223 30.0891,-12.8361 46.0066,-16.45024 4.5508,-1.05413 9.1445,-1.91596 13.7571,-2.65132 1.3173,-0.18921 2.8678,-0.44145 4.281,-0.62112 11.9581,-1.65321 24.0653,-2.27661 36.0838,-2.57239 15.8342,-0.35647 31.6733,-0.12099 47.5098,-0.16931 94.9851,0.0316 189.9703,0.0688 284.9555,0.10501 0.011,-38 0.028,-76 0.039,-114 -109.1867,-0.0375 -218.3735,-0.0809 -327.5601,-0.075 -0.2391,0.004 -0.4781,0.008 -0.7172,0.0125`;
+      this._maskPath = new Path2D(maskPathData);
+
       this.startParticleAnimation();
     }
-
-    // Create masked group for path 1 particles (top-left → bottom-right).
-    const mask = svgClone.querySelector<SVGMaskElement>("#curveMask");
-    if (mask) {
-      const group1 = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      group1.setAttribute("mask", "url(#curveMask)");
-      svgClone.appendChild(group1);
-      this._particleGroup1 = group1;
-    }
-
-    // Create unmasked group for path 2 particles (top-right → bottom-left).
-    const group2 = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    svgClone.appendChild(group2);
-    this._particleGroup2 = group2;
 
     // Apply initial gradient colours if hass data is already available.
     if (this._hass) this.updateSvgGradients();
@@ -337,6 +371,11 @@ class HRVCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.stopParticleAnimation();
+    if (this._canvas && this._canvas.parentNode) {
+      this._canvas.parentNode.removeChild(this._canvas);
+    }
+    this._canvas = undefined;
+    this._canvasCtx = undefined;
   }
 
   // ── Particle animation ────────────────────────
@@ -388,17 +427,20 @@ class HRVCard extends LitElement {
     const range = Math.max(maxTemp - minTemp, 0.1);
     const normalise = (t: number) => (t - minTemp) / range;
 
-    // Spawn new particles periodically (roughly 2 per second per path).
-    const spawnChance = 0.02 * dt * 60;
+    // Spawn new particles periodically (~8 per second per path).
+    const spawnChance = 0.20 * dt * 60;
+    const PARTICLE_SPEED = 0.2; // progress per second (constant for all particles)
+    const MAX_OFFSET = 0.8; // keep particles away from stroke edges (0.7 = 70% of half-width)
     for (let pathIndex = 0; pathIndex < 2; pathIndex++) {
       if (Math.random() < spawnChance) {
-        const speed = 0.15 + Math.random() * 0.1; // progress per second
         const size = 3 + Math.random() * 2;
-        // Spawn at start of path with random perpendicular offset across stroke width.
-        const offset = (Math.random() - 0.5) * 2; // -1 to 1
+        // Spawn biased towards center of stroke, clamped away from edges.
+        const rawOffset = Math.random() * 2 - 1; // -1 to 1
+        const biasedOffset = Math.sign(rawOffset) * Math.pow(Math.abs(rawOffset), 1.5); // bias toward 0
+        const offset = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, biasedOffset)); // clamp
         this._particles.push({
           progress: 0,
-          speed,
+          speed: PARTICLE_SPEED,
           size,
           pathIndex: pathIndex as 0 | 1,
           color: tempToColor(normalise(pathIndex === 0 ? path1Temps[0] : path2Temps[0])),
@@ -412,7 +454,7 @@ class HRVCard extends LitElement {
     for (const p of this._particles) {
       // Add current position to trail before updating progress.
       p.trail.unshift({ progress: p.progress, offset: p.offset });
-      // Keep trail length limited (max ~8 segments for ~200ms at 60fps).
+      // Keep trail length limited (max 8 segments).
       if (p.trail.length > 8) p.trail.pop();
 
       p.progress += p.speed * dt;
@@ -428,26 +470,55 @@ class HRVCard extends LitElement {
   }
 
 private renderParticles(): void {
-    if (!this._particleGroup1 || !this._particleGroup2 || !this._flowPaths || !this._particles.length) return;
+    if (!this._canvas || !this._canvasCtx || !this._pathPoints.length || !this._particles.length) return;
 
-    // Remove old particle elements.
-    this._particleGroup1.querySelectorAll(".flow-particle").forEach((el) => el.remove());
-    this._particleGroup2.querySelectorAll(".flow-particle").forEach((el) => el.remove());
+    const ctx = this._canvasCtx;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Canvas is inside SVG foreignObject with viewBox coordinates.
+    // Use SVG viewBox dimensions directly.
+    const VIEWBOX_WIDTH = 1629;
+    const VIEWBOX_HEIGHT = 640;
+
+    const width = VIEWBOX_WIDTH * dpr;
+    const height = VIEWBOX_HEIGHT * dpr;
+
+    // Resize canvas if needed.
+    if (this._canvas.width !== width || this._canvas.height !== height) {
+      this._canvas.width = width;
+      this._canvas.height = height;
+      this._canvas.style.width = `${VIEWBOX_WIDTH}px`;
+      this._canvas.style.height = `${VIEWBOX_HEIGHT}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Clear canvas (in viewBox coordinates).
+    ctx.clearRect(0, 0, VIEWBOX_WIDTH, VIEWBOX_HEIGHT);
 
     const strokeWidth = 90; // matches SVG stroke-width
+    const SAMPLE_COUNT = 100;
 
-    /** Render a particle at given progress/offset with specific style. */
-    const renderAt = (group: SVGGElement, path: SVGPathElement, length: number, progress: number, offset: number, size: number, opacity: number) => {
-      const progressLen = progress * length;
-      const point = path.getPointAtLength(progressLen);
+    /** Get interpolated point and tangent from precomputed path data. */
+    const getPathData = (pathIndex: number, progress: number) => {
+      const { points } = this._pathPoints[pathIndex];
+      const idx = progress * SAMPLE_COUNT;
+      const i = Math.floor(idx);
+      const f = idx - i;
+      const a = points[Math.min(i, SAMPLE_COUNT)];
+      const b = points[Math.min(i + 1, SAMPLE_COUNT)];
+      return {
+        x: a.x + (b.x - a.x) * f,
+        y: a.y + (b.y - a.y) * f,
+        tx: a.tx + (b.tx - a.tx) * f,
+        ty: a.ty + (b.ty - a.ty) * f,
+      };
+    };
 
-      const nextLen = Math.min(progressLen + 1, length);
-      const nextPoint = path.getPointAtLength(nextLen);
-      const dx = nextPoint.x - point.x;
-      const dy = nextPoint.y - point.y;
-      const tangentLen = Math.hypot(dx, dy) || 1;
-      const tx = dx / tangentLen;
-      const ty = dy / tangentLen;
+    const FADE_IN_END = 0.15;
+    const FADE_OUT_START = 0.85;
+
+    const renderParticle = (progress: number, offset: number, size: number, baseOpacity: number, pathIndex: number) => {
+      const { x, y, tx, ty } = getPathData(pathIndex, progress);
 
       const px = -ty;
       const py = tx;
@@ -455,33 +526,43 @@ private renderParticles(): void {
       const offsetX = px * offset * (strokeWidth / 2);
       const offsetY = py * offset * (strokeWidth / 2);
 
-      const particle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      particle.setAttribute("class", "flow-particle");
-      particle.setAttribute("cx", String(point.x + offsetX));
-      particle.setAttribute("cy", String(point.y + offsetY));
-      particle.setAttribute("r", String(size));
-      particle.setAttribute("fill", "white");
-      particle.setAttribute("opacity", String(opacity));
-      particle.style.filter = "blur(1px)";
-      group.appendChild(particle);
+      let progressOpacity = 1;
+      if (progress < FADE_IN_END) {
+        progressOpacity = progress / FADE_IN_END;
+      } else if (progress > FADE_OUT_START) {
+        progressOpacity = (1 - progress) / (1 - FADE_OUT_START);
+      }
+      const opacity = baseOpacity * progressOpacity;
+
+      const finalX = x + offsetX;
+      const finalY = y + offsetY;
+
+      // Skip particles in masked crossing area (stroke width ~90px).
+      if (this._maskPath) {
+        ctx.lineWidth = strokeWidth;
+        if (ctx.isPointInStroke(this._maskPath, finalX, finalY)) {
+          return;
+        }
+      }
+
+      ctx.beginPath();
+      ctx.arc(finalX, finalY, size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+      ctx.fill();
     };
 
     for (const p of this._particles) {
-      const path = this._flowPaths[p.pathIndex];
-      const length = this._pathLengths[p.pathIndex];
-      const group = p.pathIndex === 0 ? this._particleGroup1! : this._particleGroup2!;
-
-      // Render trail (oldest first, so head renders on top).
+      // Render trail (oldest first).
       for (let i = p.trail.length - 1; i >= 0; i--) {
         const t = p.trail[i];
-        const trailProgress = 1 - i / (p.trail.length - 1); // 1 (newest) to 0 (oldest)
-        const opacity = 0.15 * trailProgress; // fade from ~0.15 to 0
-        const size = p.size * (0.5 + 0.5 * trailProgress); // grow from half to full size
-        renderAt(group, path, length, t.progress, t.offset, size, opacity);
+        const trailProgress = 1 - i / (p.trail.length - 1);
+        const opacity = 0.1 * trailProgress;
+        const size = p.size * (0.5 + 0.5 * trailProgress);
+        renderParticle(t.progress, t.offset, size, opacity, p.pathIndex);
       }
 
       // Render main particle (head).
-      renderAt(group, path, length, p.progress, p.offset, p.size, 0.6);
+      renderParticle(p.progress, p.offset, p.size, 0.4, p.pathIndex);
     }
   }
 
