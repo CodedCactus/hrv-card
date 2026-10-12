@@ -1,6 +1,6 @@
 import { type TemplateResult, LitElement, html, css } from "lit";
 import hrvSvg from "./assets/card.svg?raw";
-import { tempToColor, buildGradientTemps } from "./color";
+import { tempToColor, buildGradientTemps, lerp } from "./color";
 
 // ─────────────────────────────────────────────
 // Types
@@ -80,6 +80,16 @@ interface GradientStops {
   path2: SVGStopElement[];
 }
 
+/** Particle flowing along a path. */
+interface Particle {
+  progress: number;      // 0–1 along path
+  speed: number;         // progress per frame
+  size: number;          // particle radius
+  pathIndex: 0 | 1;      // which path (0=path1, 1=path2)
+  color: string;         // current color
+  offset: number;        // perpendicular offset from path center (-1 to 1)
+}
+
 function queryGradientStops(svg: SVGSVGElement): GradientStops {
   const stopsOf = (id: string): SVGStopElement[] =>
     Array.from(svg.querySelectorAll<SVGStopElement>(`#${id} stop`));
@@ -123,8 +133,20 @@ class HRVCard extends LitElement {
   private _hass?: HomeAssistant;
   config?: HRVCardConfig;
 
-  /** Cached references to the live <stop> elements inside this card's SVG. */
+/** Cached references to the live <stop> elements inside this card's SVG. */
   private _gradientStops?: GradientStops;
+
+  /** Group element with mask applied for particles. */
+  private _particleGroup?: SVGGElement;
+
+  /** Cached SVG path elements for particle animation. */
+  private _flowPaths?: [SVGPathElement, SVGPathElement];
+
+  /** Particle animation state. */
+  private _particles: Particle[] = [];
+  private _animationFrame?: number;
+  private _lastFrameTime = 0;
+  private _pathLengths: [number, number] = [0, 0];
 
   /**
    * All tracked entity IDs. Any state change triggers a re-render; temp entity
@@ -264,12 +286,170 @@ class HRVCard extends LitElement {
     // Cache the stop elements directly so future updates are O(1) attribute sets.
     this._gradientStops = queryGradientStops(svgClone);
 
+    // Cache the flow path elements for particle animation.
+    const path1 = svgClone.querySelector<SVGPathElement>("#path10");
+    const path2 = svgClone.querySelector<SVGPathElement>("#path11");
+    if (path1 && path2) {
+      this._flowPaths = [path1, path2];
+      this._pathLengths = [path1.getTotalLength(), path2.getTotalLength()];
+      this.startParticleAnimation();
+    }
+
+    // Create a group with the same mask as the paths for particle rendering.
+    const mask = svgClone.querySelector<SVGMaskElement>("#curveMask");
+    if (mask) {
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group.setAttribute("mask", "url(#curveMask)");
+      svgClone.appendChild(group);
+      this._particleGroup = group;
+    }
+
     // Apply initial gradient colours if hass data is already available.
     if (this._hass) this.updateSvgGradients();
   }
 
   protected updated(changedProps: Map<string, unknown>): void {
-    if (changedProps.has("_hass")) this.updateSvgGradients();
+    if (changedProps.has("_hass")) {
+      this.updateSvgGradients();
+      // Start/stop particle animation based on data availability.
+      if (this._hass && this._flowPaths && !this._animationFrame) {
+        this.startParticleAnimation();
+      } else if (!this._hass && this._animationFrame) {
+        this.stopParticleAnimation();
+      }
+    }
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.stopParticleAnimation();
+  }
+
+  // ── Particle animation ────────────────────────
+
+  private startParticleAnimation(): void {
+    if (this._animationFrame) return;
+    this._lastFrameTime = performance.now();
+    this.animateParticles();
+  }
+
+  private stopParticleAnimation(): void {
+    if (this._animationFrame) {
+      cancelAnimationFrame(this._animationFrame);
+      this._animationFrame = undefined;
+      this._particles = [];
+    }
+  }
+
+  private animateParticles = (): void => {
+    const now = performance.now();
+    const dt = (now - this._lastFrameTime) / 1000; // seconds
+    this._lastFrameTime = now;
+
+    this.updateParticles(dt);
+    this.renderParticles();
+
+    this._animationFrame = requestAnimationFrame(this.animateParticles);
+  };
+
+  private updateParticles(dt: number): void {
+    if (!this._flowPaths || !this._gradientStops || !this.config) return;
+
+    const outdoor = this.getNumericState(this.config.outdoor_temp);
+    const supply  = this.getNumericState(this.config.supply_temp);
+    const extract = this.getNumericState(this.config.extract_temp);
+    const exhaust = this.getNumericState(this.config.exhaust_temp);
+
+    if (outdoor === null || supply === null || extract === null || exhaust === null) {
+      this._particles = [];
+      return;
+    }
+
+    const path1Temps = buildGradientTemps(outdoor, supply);
+    const path2Temps = buildGradientTemps(exhaust, extract);
+
+    const allTemps = [...path1Temps, ...path2Temps];
+    const minTemp = Math.min(...allTemps);
+    const maxTemp = Math.max(...allTemps);
+    const range = Math.max(maxTemp - minTemp, 0.1);
+    const normalise = (t: number) => (t - minTemp) / range;
+
+    // Spawn new particles periodically (roughly 2 per second per path).
+    const spawnChance = 0.02 * dt * 60;
+    for (let pathIndex = 0; pathIndex < 2; pathIndex++) {
+      if (Math.random() < spawnChance) {
+        const speed = 0.15 + Math.random() * 0.1; // progress per second
+        const size = 3 + Math.random() * 2;
+        // Spawn at start of path with random perpendicular offset across stroke width.
+        const offset = (Math.random() - 0.5) * 2; // -1 to 1
+        this._particles.push({
+          progress: 0,
+          speed,
+          size,
+          pathIndex: pathIndex as 0 | 1,
+          color: tempToColor(normalise(pathIndex === 0 ? path1Temps[0] : path2Temps[0])),
+          offset,
+        });
+      }
+    }
+
+    // Update existing particles.
+    for (const p of this._particles) {
+      p.progress += p.speed * dt;
+
+      // Update color based on position along gradient.
+      const temps = p.pathIndex === 0 ? path1Temps : path2Temps;
+      const temp = lerp(temps[0], temps[3], p.progress);
+      p.color = tempToColor(normalise(temp));
+    }
+
+    // Remove particles that reached the end.
+    this._particles = this._particles.filter((p) => p.progress < 1);
+  }
+
+  private renderParticles(): void {
+    if (!this._particleGroup || !this._flowPaths || !this._particles.length) return;
+
+    // Remove old particle elements.
+    this._particleGroup.querySelectorAll(".flow-particle").forEach((el) => el.remove());
+
+    const strokeWidth = 90; // matches SVG stroke-width
+
+    for (const p of this._particles) {
+      const path = this._flowPaths[p.pathIndex];
+      const length = this._pathLengths[p.pathIndex];
+      const progressLen = p.progress * length;
+
+      // Get point on path.
+      const point = path.getPointAtLength(progressLen);
+
+      // Get tangent direction by sampling slightly ahead.
+      const nextLen = Math.min(progressLen + 1, length);
+      const nextPoint = path.getPointAtLength(nextLen);
+      const dx = nextPoint.x - point.x;
+      const dy = nextPoint.y - point.y;
+      const tangentLen = Math.hypot(dx, dy) || 1;
+      const tx = dx / tangentLen;
+      const ty = dy / tangentLen;
+
+      // Perpendicular vector (rotate 90°).
+      const px = -ty;
+      const py = tx;
+
+      // Apply perpendicular offset (half stroke width * offset factor).
+      const offsetX = px * p.offset * (strokeWidth / 2);
+      const offsetY = py * p.offset * (strokeWidth / 2);
+
+      const particle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      particle.setAttribute("class", "flow-particle");
+      particle.setAttribute("cx", String(point.x + offsetX));
+      particle.setAttribute("cy", String(point.y + offsetY));
+      particle.setAttribute("r", String(p.size));
+      particle.setAttribute("fill", "white");
+      particle.setAttribute("opacity", "0.6");
+      particle.style.filter = "blur(1px)";
+      this._particleGroup.appendChild(particle);
+    }
   }
 
   // ── SVG gradients ──────────────────────────
@@ -437,6 +617,10 @@ class HRVCard extends LitElement {
     .wrap {
       position: relative;
       width: 100%;
+    }
+
+    .svg-container {
+      z-index: 3;
     }
 
     .svg-container svg {
