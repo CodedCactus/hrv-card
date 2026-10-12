@@ -88,6 +88,13 @@ interface Particle {
   pathIndex: 0 | 1;      // which path (0=path1, 1=path2)
   color: string;         // current color
   offset: number;        // perpendicular offset from path center (-1 to 1)
+  trail: TrailPoint[];   // fading trail positions
+}
+
+/** A single point in the particle's trail. */
+interface TrailPoint {
+  progress: number;  // progress along path
+  offset: number;    // perpendicular offset
 }
 
 function queryGradientStops(svg: SVGSVGElement): GradientStops {
@@ -136,8 +143,10 @@ class HRVCard extends LitElement {
 /** Cached references to the live <stop> elements inside this card's SVG. */
   private _gradientStops?: GradientStops;
 
-  /** Group element with mask applied for particles. */
-  private _particleGroup?: SVGGElement;
+  /** Group with mask for path 1 particles (top-left → bottom-right). */
+  private _particleGroup1?: SVGGElement;
+  /** Group without mask for path 2 particles (top-right → bottom-left). */
+  private _particleGroup2?: SVGGElement;
 
   /** Cached SVG path elements for particle animation. */
   private _flowPaths?: [SVGPathElement, SVGPathElement];
@@ -295,14 +304,19 @@ class HRVCard extends LitElement {
       this.startParticleAnimation();
     }
 
-    // Create a group with the same mask as the paths for particle rendering.
+    // Create masked group for path 1 particles (top-left → bottom-right).
     const mask = svgClone.querySelector<SVGMaskElement>("#curveMask");
     if (mask) {
-      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      group.setAttribute("mask", "url(#curveMask)");
-      svgClone.appendChild(group);
-      this._particleGroup = group;
+      const group1 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group1.setAttribute("mask", "url(#curveMask)");
+      svgClone.appendChild(group1);
+      this._particleGroup1 = group1;
     }
+
+    // Create unmasked group for path 2 particles (top-right → bottom-left).
+    const group2 = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svgClone.appendChild(group2);
+    this._particleGroup2 = group2;
 
     // Apply initial gradient colours if hass data is already available.
     if (this._hass) this.updateSvgGradients();
@@ -389,12 +403,18 @@ class HRVCard extends LitElement {
           pathIndex: pathIndex as 0 | 1,
           color: tempToColor(normalise(pathIndex === 0 ? path1Temps[0] : path2Temps[0])),
           offset,
+          trail: [],
         });
       }
     }
 
     // Update existing particles.
     for (const p of this._particles) {
+      // Add current position to trail before updating progress.
+      p.trail.unshift({ progress: p.progress, offset: p.offset });
+      // Keep trail length limited (max ~8 segments for ~200ms at 60fps).
+      if (p.trail.length > 8) p.trail.pop();
+
       p.progress += p.speed * dt;
 
       // Update color based on position along gradient.
@@ -407,23 +427,20 @@ class HRVCard extends LitElement {
     this._particles = this._particles.filter((p) => p.progress < 1);
   }
 
-  private renderParticles(): void {
-    if (!this._particleGroup || !this._flowPaths || !this._particles.length) return;
+private renderParticles(): void {
+    if (!this._particleGroup1 || !this._particleGroup2 || !this._flowPaths || !this._particles.length) return;
 
     // Remove old particle elements.
-    this._particleGroup.querySelectorAll(".flow-particle").forEach((el) => el.remove());
+    this._particleGroup1.querySelectorAll(".flow-particle").forEach((el) => el.remove());
+    this._particleGroup2.querySelectorAll(".flow-particle").forEach((el) => el.remove());
 
     const strokeWidth = 90; // matches SVG stroke-width
 
-    for (const p of this._particles) {
-      const path = this._flowPaths[p.pathIndex];
-      const length = this._pathLengths[p.pathIndex];
-      const progressLen = p.progress * length;
-
-      // Get point on path.
+    /** Render a particle at given progress/offset with specific style. */
+    const renderAt = (group: SVGGElement, path: SVGPathElement, length: number, progress: number, offset: number, size: number, opacity: number) => {
+      const progressLen = progress * length;
       const point = path.getPointAtLength(progressLen);
 
-      // Get tangent direction by sampling slightly ahead.
       const nextLen = Math.min(progressLen + 1, length);
       const nextPoint = path.getPointAtLength(nextLen);
       const dx = nextPoint.x - point.x;
@@ -432,23 +449,39 @@ class HRVCard extends LitElement {
       const tx = dx / tangentLen;
       const ty = dy / tangentLen;
 
-      // Perpendicular vector (rotate 90°).
       const px = -ty;
       const py = tx;
 
-      // Apply perpendicular offset (half stroke width * offset factor).
-      const offsetX = px * p.offset * (strokeWidth / 2);
-      const offsetY = py * p.offset * (strokeWidth / 2);
+      const offsetX = px * offset * (strokeWidth / 2);
+      const offsetY = py * offset * (strokeWidth / 2);
 
       const particle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       particle.setAttribute("class", "flow-particle");
       particle.setAttribute("cx", String(point.x + offsetX));
       particle.setAttribute("cy", String(point.y + offsetY));
-      particle.setAttribute("r", String(p.size));
+      particle.setAttribute("r", String(size));
       particle.setAttribute("fill", "white");
-      particle.setAttribute("opacity", "0.6");
+      particle.setAttribute("opacity", String(opacity));
       particle.style.filter = "blur(1px)";
-      this._particleGroup.appendChild(particle);
+      group.appendChild(particle);
+    };
+
+    for (const p of this._particles) {
+      const path = this._flowPaths[p.pathIndex];
+      const length = this._pathLengths[p.pathIndex];
+      const group = p.pathIndex === 0 ? this._particleGroup1! : this._particleGroup2!;
+
+      // Render trail (oldest first, so head renders on top).
+      for (let i = p.trail.length - 1; i >= 0; i--) {
+        const t = p.trail[i];
+        const trailProgress = 1 - i / (p.trail.length - 1); // 1 (newest) to 0 (oldest)
+        const opacity = 0.15 * trailProgress; // fade from ~0.15 to 0
+        const size = p.size * (0.5 + 0.5 * trailProgress); // grow from half to full size
+        renderAt(group, path, length, t.progress, t.offset, size, opacity);
+      }
+
+      // Render main particle (head).
+      renderAt(group, path, length, p.progress, p.offset, p.size, 0.6);
     }
   }
 
