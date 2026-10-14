@@ -64,8 +64,6 @@ outdoor_temp: sensor.outdoor_temperature
 supply_temp: sensor.hrv_supply_temperature
 extract_temp: sensor.hrv_extract_temperature
 exhaust_temp: sensor.hrv_exhaust_temperature
-supply_flow: sensor.hrv_supply_flow
-exhaust_flow: sensor.hrv_exhaust_flow
 sensors:
   - entity: binary_sensor.hrv_bypass
     label: Bypass
@@ -88,9 +86,8 @@ sensors:
 | `supply_temp` | Yes | string | Entity ID for supply air temperature sensor |
 | `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
 | `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
-| `supply_flow` | No | string | Entity ID for supply air flow sensor |
-| `exhaust_flow` | No | string | Entity ID for exhaust air flow sensor |
 | `sensors` | No | array | Array of additional sensors to display |
+| `animation` | No | boolean | Enable flow animation (default: `true`) |
 
 ### Sensor Configuration
 
@@ -100,7 +97,8 @@ Each sensor in the `sensors` array supports:
 |--------|----------|------|-------------|
 | `entity` | Yes | string | Entity ID of the sensor |
 | `label` | No | string | Display label (defaults to entity name) |
-| `format` | No | string | Display format: `"binary"` or `"text"` (auto-detected) |
+| `format` | No | string | Display format: `"binary"`, `"text"`, or `"number"` (auto-detected) |
+| `decimals` | No | number | Decimal places for `"number"` format (default: 1) |
 | `unit` | No | string | Unit to display (auto-detected from entity) |
 
 ## 🔧 Development
@@ -138,6 +136,12 @@ npm run preview
 
 # Type checking
 npm run typecheck
+
+# Linting
+npm run lint
+
+# Run tests
+npm run test
 ```
 
 ## 📄 License

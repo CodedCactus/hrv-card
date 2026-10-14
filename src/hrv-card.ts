@@ -1,6 +1,6 @@
-import { LitElement, html, css } from "lit";
-import { unsafeSVG } from "lit/directives/unsafe-svg.js";
+import { type TemplateResult, LitElement, html, css } from "lit";
 import hrvSvg from "./assets/card.svg?raw";
+import { tempToColor, buildGradientTemps, lerp } from "./color";
 
 // ─────────────────────────────────────────────
 // Types
@@ -21,16 +21,16 @@ export interface HRVCardConfig {
   supply_temp: string;
   extract_temp: string;
   exhaust_temp: string;
-  supply_flow?: string;
-  exhaust_flow?: string;
-  sensors: SensorConfig[];
+  sensors?: SensorConfig[];
+  animation?: boolean; // enable/disable flow animation (default: true)
 }
 
 interface SensorConfig {
   entity: string;
   label?: string;
-  format?: "binary" | "text";
+  format?: "binary" | "text" | "number";
   unit?: string;
+  decimals?: number;
 }
 
 interface SensorDisplayInfo {
@@ -38,9 +38,8 @@ interface SensorDisplayInfo {
   unit: string;
   isBinary: boolean;
   isOn: boolean;
+  isHeat: boolean;
 }
-
-type RGB = [number, number, number];
 
 // ─────────────────────────────────────────────
 // Constants
@@ -58,247 +57,74 @@ const GRADIENT_IDS = {
   path2: "gradientPath2",
 } as const;
 
-/** Cool-to-warm colour ramp (blue → light blue → orange → red). */
-const COLOR_STOPS: RGB[] = [
-  [59, 76, 192],
-  [120, 180, 220],
-  [245, 160, 105],
-  [180, 4, 38],
-];
-
-/** SVG viewBox dimensions — must match card.svg */
-const SVG_W = 1629;
-const SVG_H = 640;
-
-/** Half the stroke-width of the two flow paths in SVG units */
-const HALF_STROKE = 45;
-
-/** Path d-strings from card.svg (arrows removed) */
-const PATH1_D =
-  "m 49.454545,185.45455 309.736315,-0.13621 c 67.2347,0.42883 104.58368,11.78795 162.60635,41.30753 l 540.46499,240.34965 c 86.6087,38.92199 129.7411,49.51111 206.0245,49.02448 l 321.8951,-0.36364";
-
-const PATH2_D =
-  "m 1590.2128,185.45455 -309.7363,-0.13621 c -67.2347,0.42883 -104.5836,11.78795 -162.6063,41.30753 L 577.40519,466.97552 C 490.79649,505.89751 447.66409,516.48663 371.38069,516 L 49.485592,515.63636";
+// ─────────────────────────────────────────────
+// Module-level SVG cache
+// ─────────────────────────────────────────────
 
 /**
- * The mask cutout polygon from card.svg — the black region that hides path1
- * particles where the two flows cross. Coordinates are in SVG units (0..1629 × 0..640).
- *
- * This is the `d` of the black <path> inside <mask id="curveMask">.
+ * Parse the SVG string once at module load and cache the resulting element.
+ * Every card instance clones this node rather than re-parsing the string.
  */
-const MASK_CUTOUT_D =
-  "m 1273.9551,128.39258 c -32.0637,0.58284 -64.2021,4.24638 -95.177,12.74756 -27.6382,7.50585 -54.2017,18.53026 -79.8197,31.25211 -3.304,1.61358 -6.583,3.1479 -9.8971,4.64693 -9.4165,4.22773 -18.8683,8.37419 -28.2909,12.58876 -173.97544,77.35812 -347.94584,154.7278 -521.92448,232.07869 -14.0354,6.10129 -28.11932,12.11071 -42.47092,17.43595 -2.33738,0.86672 -4.90909,1.79684 -7.25,2.62304 -12.65767,4.43483 -25.45548,8.30162 -38.63813,11.06951 -1.20711,0.23826 -2.51848,0.51874 -3.7589,0.75152 -3.92058,0.76101 -7.86027,1.42066 -11.81,2.01101 -1.15512,0.15932 -2.40872,0.35404 -3.57538,0.50199 -10.0584,1.34122 -20.21971,2.07689 -30.39554,2.4725 -16.58735,0.63549 -33.28867,0.38907 -49.92752,0.39986 -104.49023,-0.1153 -208.98047,-0.23191 -313.470702,-0.34701 -0.04109,38 -0.08391,76 -0.125,114 115.416492,0.12179 230.833112,0.24509 346.249572,0.32646 33.67553,-0.39328 67.41881,-3.8015 100.17893,-11.78258 37.57577,-9.01861 73.71283,-23.09878 108.98499,-38.71061 34.56098,-15.29015 69.06914,-30.70181 103.60763,-46.04392 148.81735,-66.1912 297.63855,-132.37436 446.45345,-198.5706 8.8478,-4.44955 17.7053,-8.88423 26.7012,-13.0293 14.7424,-6.76223 30.0891,-12.8361 46.0066,-16.45024 4.5508,-1.05413 9.1445,-1.91596 13.7571,-2.65132 1.3173,-0.18921 2.8678,-0.44145 4.281,-0.62112 11.9581,-1.65321 24.0653,-2.27661 36.0838,-2.57239 15.8342,-0.35647 31.6733,-0.12099 47.5098,-0.16931 94.9851,0.0316 189.9703,0.0688 284.9555,0.10501 0.011,-38 0.028,-76 0.039,-114 -109.1867,-0.0375 -218.3735,-0.0809 -327.5601,-0.075 -0.2391,0.004 -0.4781,0.008 -0.7172,0.0125";
-
-const PARTICLE_COUNT = 55; // per path
-
-// ─────────────────────────────────────────────
-// Pure colour utilities
-// ─────────────────────────────────────────────
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function clamp(value: number, min = 0, max = 1): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-/** Classic cubic smoothstep — returns 0 at edge0, 1 at edge1, smooth in between. */
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = clamp((x - edge0) / (edge1 - edge0));
-  return t * t * (3 - 2 * t);
-}
-
-function lerpChannel(a: number, b: number, t: number): number {
-  return Math.round(lerp(a, b, t));
-}
-
-function tempToColor(normalised: number): string {
-  const t = clamp(normalised);
-  const segments = COLOR_STOPS.length - 1;
-  const scaled = t * segments;
-  const i = Math.floor(scaled);
-  const f = scaled - i;
-
-  const a = COLOR_STOPS[i];
-  const b = COLOR_STOPS[Math.min(i + 1, segments)];
-
-  return `rgb(${lerpChannel(a[0], b[0], f)},${lerpChannel(a[1], b[1], f)},${lerpChannel(a[2], b[2], f)})`;
-}
-
-function buildGradientTemps(
-  start: number,
-  end: number
-): [number, number, number, number] {
-  return [start, lerp(start, end, 0.33), lerp(start, end, 0.66), end];
-}
-
-function applyGradient(
-  svg: SVGElement,
-  gradientId: string,
-  temps: number[],
-  normalise: (t: number) => number
-): void {
-  const grad = svg.querySelector<SVGLinearGradientElement>(`#${gradientId}`);
-  if (!grad) return;
-
-  grad.innerHTML = "";
-
-  temps.forEach((temp, i) => {
-    const stop = document.createElementNS("http://www.w3.org/2000/svg", "stop");
-    stop.setAttribute("offset", `${(i / (temps.length - 1)) * 100}%`);
-    stop.setAttribute("stop-color", tempToColor(normalise(temp)));
-    grad.appendChild(stop);
-  });
-}
+const _svgTemplate = ((): SVGSVGElement => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(hrvSvg, "image/svg+xml");
+  return doc.querySelector("svg") as SVGSVGElement;
+})();
 
 // ─────────────────────────────────────────────
-// Particle colour
+// Gradient stop references (per card instance)
 // ─────────────────────────────────────────────
 
-/** All particles are white; alpha is handled per-segment in draw(). */
-function particleColor(_t: number): RGB {
-  return [255, 255, 255];
+/** Holds direct references to the 4 stop elements inside each gradient. */
+interface GradientStops {
+  path1: SVGStopElement[];
+  path2: SVGStopElement[];
 }
 
-// ─────────────────────────────────────────────
-// Path sampler
-// ─────────────────────────────────────────────
-
-interface PathSample {
-  x: number;
-  y: number;
-  /** Unit normal perpendicular to the path tangent (points "left" of travel). */
-  nx: number;
-  ny: number;
+/** Particle flowing along a path. */
+interface Particle {
+  progress: number;      // 0–1 along path
+  speed: number;         // progress per frame
+  size: number;          // particle radius
+  pathIndex: 0 | 1;      // which path (0=path1, 1=path2)
+  color: string;         // current color
+  offset: number;        // perpendicular offset from path center (-1 to 1)
+  trail: TrailPoint[];   // fading trail positions
 }
 
-function samplePath(svgPath: SVGPathElement, t: number): PathSample {
-  const totalLen = svgPath.getTotalLength();
-  const pt = svgPath.getPointAtLength(t * totalLen);
+/** A single point in the particle's trail. */
+interface TrailPoint {
+  progress: number;  // progress along path
+  offset: number;    // perpendicular offset
+}
 
-  const dt = 0.001;
-  const t1 = Math.max(t - dt, 0);
-  const t2 = Math.min(t + dt, 1);
-  const pa = svgPath.getPointAtLength(t1 * totalLen);
-  const pb = svgPath.getPointAtLength(t2 * totalLen);
-
-  const dx = pb.x - pa.x;
-  const dy = pb.y - pa.y;
-  const mag = Math.sqrt(dx * dx + dy * dy) || 1;
-
+function queryGradientStops(svg: SVGSVGElement): GradientStops {
+  const stopsOf = (id: string): SVGStopElement[] =>
+    Array.from(svg.querySelectorAll<SVGStopElement>(`#${id} stop`));
   return {
-    x: pt.x,
-    y: pt.y,
-    nx: -dy / mag,
-    ny:  dx / mag,
+    path1: stopsOf(GRADIENT_IDS.path1),
+    path2: stopsOf(GRADIENT_IDS.path2),
   };
 }
 
-// ─────────────────────────────────────────────
-// Particle
-// ─────────────────────────────────────────────
-
-const TAIL_LENGTH = 14;
-
-class Particle {
-  t = 0;
-  speed = 0;
-  lane = 0;      // -1..1 → -HALF_STROKE..+HALF_STROKE in SVG units
-  baseSize = 0;
-  alpha = 0;
-  /** Each entry: [canvasX, canvasY, pathT] – pathT drives color per segment. */
-  tail: Array<[number, number, number]> = [];
-
-  svgPath: SVGPathElement;
-  private colorFn: (t: number) => RGB;
-
-  constructor(
-    svgPath: SVGPathElement,
-    colorFn: (t: number) => RGB
-  ) {
-    this.svgPath = svgPath;
-    this.colorFn = colorFn;
-    this.reset(true);
-  }
-
-  reset(initial: boolean): void {
-    this.t        = initial ? Math.random() : 0;
-    this.lane     = Math.random() * 2 - 1;
-    this.speed    = 0.004 + Math.random() * 0.0005;
-    this.baseSize = 1.4 + Math.random() * 1.4;
-    this.alpha    = 0.18 + Math.random() * 0.14;
-    this.tail     = [];
-  }
-
-  update(scaleX: number, scaleY: number): void {
-    this.t += this.speed;
-    if (this.t > 1) {
-      this.reset(false);
-      return;
-    }
-
-    const s      = samplePath(this.svgPath, this.t);
-    const offset = this.lane * HALF_STROKE * 0.88;
-
-    this.tail.unshift([
-      (s.x + s.nx * offset) * scaleX,
-      (s.y + s.ny * offset) * scaleY,
-      this.t,
-    ]);
-    if (this.tail.length > TAIL_LENGTH) this.tail.pop();
-  }
-
-  draw(ctx: CanvasRenderingContext2D): void {
-    if (this.tail.length < 2) return;
-
-    // Smooth falloff from centre (lane=0) to stroke edge (lane=±1).
-    // cos²(|lane| · π/2) = 1 at centre, 0 at edge.
-    const edgeFade = Math.pow(Math.cos(Math.abs(this.lane) * Math.PI * 0.5), 2);
-
-    for (let i = 1; i < this.tail.length; i++) {
-      const [x0, y0, t0] = this.tail[i - 1];
-      const [x1, y1]     = this.tail[i];
-      const ratio = 1 - i / this.tail.length;
-
-      // Fade in near the source label (t≈0) and fade out into the destination
-      // label (t≈1), so particles look like they stream out of and into the pills.
-      const FADE_ZONE = 0.12; // fraction of path length used for each fade
-      const endpointFade = Math.min(
-        smoothstep(0, FADE_ZONE, t0),          // ramp up from source
-        smoothstep(1, 1 - FADE_ZONE, t0)       // ramp down into destination
-      );
-
-      const a = this.alpha * edgeFade * endpointFade;
-      const [r, g, b] = this.colorFn(t0);
-
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.strokeStyle = `rgba(${r},${g},${b},${a * ratio * 0.8})`;
-      ctx.lineWidth   = this.baseSize * ratio;
-      ctx.lineCap     = "round";
-      ctx.stroke();
-    }
-
-    // Bright head — also fades at endpoints
-    const [hx, hy, ht] = this.tail[0];
-    const FADE_ZONE = 0.12;
-    const endpointFade = Math.min(
-      smoothstep(0, FADE_ZONE, ht),
-      smoothstep(1, 1 - FADE_ZONE, ht)
+/**
+ * Update the stop colours for one gradient by mutating only `stop-color`
+ * attributes on the already-live stop elements.  No innerHTML, no queries.
+ */
+function applyGradientToStops(
+  stops: SVGStopElement[],
+  temps: number[],
+  normalise: (t: number) => number
+): void {
+  if (stops.length !== temps.length) {
+    throw new Error(
+      `Gradient stop/temperature count mismatch: ${stops.length} stops vs ${temps.length} temps.`
     );
-    const [r, g, b] = this.colorFn(ht);
-    ctx.beginPath();
-    ctx.arc(hx, hy, this.baseSize * 0.7, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${r},${g},${b},${this.alpha * edgeFade * endpointFade})`;
-    ctx.fill();
+  }
+  for (let i = 0; i < stops.length; i++) {
+    stops[i].setAttribute("stop-color", tempToColor(normalise(temps[i])));
   }
 }
-
-// ─────────────────────────────────────────────
-// Mask path builder
-// ─────────────────────────────────────────────
 
 // ─────────────────────────────────────────────
 // Component
@@ -315,22 +141,34 @@ class HRVCard extends LitElement {
   private _hass?: HomeAssistant;
   config?: HRVCardConfig;
 
-  // Particle animation state
-  private _canvas?: HTMLCanvasElement;
-  private _ctx?: CanvasRenderingContext2D;
-  /** Offscreen canvas used to draw path1 particles before masking them */
-  private _offscreen?: HTMLCanvasElement;
-  private _offCtx?: CanvasRenderingContext2D;
-  private _particles: Particle[] = [];
-  private _animFrame?: number;
-  private _resizeObserver?: ResizeObserver;
+/** Cached references to the live <stop> elements inside this card's SVG. */
+  private _gradientStops?: GradientStops;
 
-  // Hidden SVG used for path sampling (getTotalLength / getPointAtLength)
-  private _tmpSvg?: SVGSVGElement;
-  private _svgPath1?: SVGPathElement;
-  private _svgPath2?: SVGPathElement;
-  /** Path2D of the mask cutout in SVG units — rebuilt on resize */
+  /** Cached SVG path elements for particle animation. */
+  private _flowPaths?: [SVGPathElement, SVGPathElement];
+
+  /** Precomputed path points for fast interpolation. */
+  private _pathPoints: { points: { x: number; y: number; tx: number; ty: number }[]; length: number }[] = [];
+
+  /** Canvas for particle rendering. */
+  private _canvas?: HTMLCanvasElement;
+  private _canvasCtx?: CanvasRenderingContext2D;
+
+  /** Mask path for canvas clipping (from SVG mask - crossing region). */
   private _maskPath?: Path2D;
+
+  /** Particle animation state. */
+  private _particles: Particle[] = [];
+  private _animationFrame?: number;
+  private _lastFrameTime = 0;
+  private _pathLengths: [number, number] = [0, 0];
+
+  /**
+   * All tracked entity IDs. Any state change triggers a re-render; temp entity
+   * changes also update the SVG gradients (via updated()).
+   * Computed once in setConfig.
+   */
+  private _trackedEntities: string[] = [];
 
   // ── hass accessor ──────────────────────────
 
@@ -343,19 +181,8 @@ class HRVCard extends LitElement {
       return;
     }
 
-    const trackedEntities = [
-      this.config.outdoor_temp,
-      this.config.supply_temp,
-      this.config.extract_temp,
-      this.config.exhaust_temp,
-      ...(this.config.supply_flow  ? [this.config.supply_flow]  : []),
-      ...(this.config.exhaust_flow ? [this.config.exhaust_flow] : []),
-      ...(this.config.sensors?.map((s) => s.entity) ?? []),
-    ];
-
-    const hasChanged = trackedEntities.some(
-      (entity) =>
-        previous?.states[entity]?.state !== value.states[entity]?.state
+    const hasChanged = this._trackedEntities.some(
+      (e) => previous?.states[e]?.state !== value.states[e]?.state
     );
 
     if (hasChanged) this.requestUpdate();
@@ -373,30 +200,44 @@ class HRVCard extends LitElement {
     }
 
     for (const key of REQUIRED_CONFIG_KEYS) {
-      if (!config[key]) {
+      const value = config[key];
+      if (typeof value !== "string" || value.trim() === "") {
         throw new Error(
           `HRV Card is missing required field: "${key}". Required fields: ${REQUIRED_CONFIG_KEYS.join(", ")}.`
         );
       }
     }
 
-    if (!Array.isArray(config.sensors)) {
-      throw new Error('HRV Card requires a "sensors" array.');
-    }
-
     this.config = { ...config };
+
+    // Cache tracked entities so the hass setter never allocates on each call.
+    this._trackedEntities = [
+      config.outdoor_temp,
+      config.supply_temp,
+      config.extract_temp,
+      config.exhaust_temp,
+      ...(config.sensors?.map((s) => s.entity) ?? []),
+    ];
   }
 
+  /** Approximate rendered row count; used by HA's card-size layout system. */
   getCardSize(): number {
-    return 3;
+    // Header (1) + SVG/overlay block (1) + sensor row (1 when configured).
+    return 2 + (this.config?.sensors?.length ? 1 : 0);
   }
 
   // ── state helpers ──────────────────────────
 
-  private getNumericState(entity: string): number {
+  /**
+   * Read an entity's state as a number.
+   * Returns `null` when the entity is missing or its state is not numeric,
+   * so callers can distinguish "unavailable" from a genuine `0`.
+   */
+  private getNumericState(entity: string): number | null {
     const raw = this._hass?.states?.[entity]?.state;
+    if (raw === undefined || raw === null) return null;
     const num = Number(raw);
-    return Number.isNaN(num) ? 0 : num;
+    return Number.isNaN(num) ? null : num;
   }
 
   private getEntityAttribute<T>(entity: string, attribute: string): T | undefined {
@@ -416,6 +257,7 @@ class HRVCard extends LitElement {
     const isBinary =
       sensor.format === "binary" || state === "on" || state === "off";
     const isOpening = deviceClass === "opening";
+    const isHeat = deviceClass === "heat";
     const isOn = state === "on";
 
     let display: string;
@@ -423,12 +265,16 @@ class HRVCard extends LitElement {
       display = isOn
         ? (isOpening ? "Open"   : "On")
         : (isOpening ? "Closed" : "Off");
+    } else if (sensor.format === "number") {
+      const num = Number(state);
+      const decimals = sensor.decimals ?? 1;
+      display = Number.isNaN(num) ? state : num.toFixed(decimals);
     } else {
       const num = Number(state);
       display = Number.isNaN(num) ? state : num.toFixed(1);
     }
 
-    return { display, unit, isBinary, isOn };
+    return { display, unit, isBinary, isOn, isHeat };
   }
 
   // ── event dispatch ─────────────────────────
@@ -446,187 +292,321 @@ class HRVCard extends LitElement {
   // ── lifecycle ──────────────────────────────
 
   protected firstUpdated(): void {
-    this.updateSvgGradients();
-    this.initParticleSystem();
+    // Clone the module-level parsed SVG and insert it once, imperatively.
+    // Lit will never touch this node again.
+    const svgClone = _svgTemplate.cloneNode(true) as SVGSVGElement;
+    const container = this.renderRoot.querySelector<HTMLElement>(".svg-container");
+    container?.appendChild(svgClone);
+
+    // Cache the stop elements directly so future updates are O(1) attribute sets.
+    this._gradientStops = queryGradientStops(svgClone);
+
+    // Cache the flow path elements for particle animation.
+    const path1 = svgClone.querySelector<SVGPathElement>("#path10");
+    const path2 = svgClone.querySelector<SVGPathElement>("#path11");
+    if (path1 && path2) {
+      this._flowPaths = [path1, path2];
+      this._pathLengths = [path1.getTotalLength(), path2.getTotalLength()];
+
+      // Precompute path points for fast interpolation.
+      const SAMPLE_COUNT = 100;
+      for (let i = 0; i < 2; i++) {
+        const path = this._flowPaths[i];
+        const length = this._pathLengths[i];
+        const points: { x: number; y: number; tx: number; ty: number }[] = [];
+        for (let j = 0; j <= SAMPLE_COUNT; j++) {
+          const progress = j / SAMPLE_COUNT;
+          const len = progress * length;
+          const pt = path.getPointAtLength(len);
+          const nextLen = Math.min(len + 1, length);
+          const nextPt = path.getPointAtLength(nextLen);
+          const dx = nextPt.x - pt.x;
+          const dy = nextPt.y - pt.y;
+          const tangentLen = Math.hypot(dx, dy) || 1;
+          points.push({ x: pt.x, y: pt.y, tx: dx / tangentLen, ty: dy / tangentLen });
+        }
+        this._pathPoints.push({ points, length });
+      }
+
+      // Create canvas inside SVG (as sibling to paths) for perfect alignment.
+      const canvas = document.createElementNS("http://www.w3.org/2000/svg", "foreignObject");
+      canvas.setAttribute("width", "100%");
+      canvas.setAttribute("height", "100%");
+      canvas.setAttribute("x", "0");
+      canvas.setAttribute("y", "0");
+      canvas.setAttribute("pointer-events", "none");
+
+      const htmlCanvas = document.createElement("canvas");
+      htmlCanvas.style.width = "100%";
+      htmlCanvas.style.height = "100%";
+      htmlCanvas.style.display = "block";
+      canvas.appendChild(htmlCanvas);
+
+      svgClone.appendChild(canvas);
+      this._canvas = htmlCanvas;
+      this._canvasCtx = htmlCanvas.getContext("2d")!;
+
+      // Mask path from SVG (defines crossing region where path 1 goes under path 2).
+      const maskPathData = `m 1273.9551,128.39258 c -32.0637,0.58284 -64.2021,4.24638 -95.177,12.74756 -27.6382,7.50585 -54.2017,18.53026 -79.8197,31.25211 -3.304,1.61358 -6.583,3.1479 -9.8971,4.64693 -9.4165,4.22773 -18.8683,8.37419 -28.2909,12.58876 -173.97544,77.35812 -347.94584,154.7278 -521.92448,232.07869 -14.0354,6.10129 -28.11932,12.11071 -42.47092,17.43595 -2.33738,0.86672 -4.90909,1.79684 -7.25,2.62304 -12.65767,4.43483 -25.45548,8.30162 -38.63813,11.06951 -1.20711,0.23826 -2.51848,0.51874 -3.7589,0.75152 -3.92058,0.76101 -7.86027,1.42066 -11.81,2.01101 -1.15512,0.15932 -2.40872,0.35404 -3.57538,0.50199 -10.0584,1.34122 -20.21971,2.07689 -30.39554,2.4725 -16.58735,0.63549 -33.28867,0.38907 -49.92752,0.39986 -104.49023,-0.1153 -208.98047,-0.23191 -313.470702,-0.34701 -0.04109,38 -0.08391,76 -0.125,114 115.416492,0.12179 230.833112,0.24509 346.249572,0.32646 33.67553,-0.39328 67.41881,-3.8015 100.17893,-11.78258 37.57577,-9.01861 73.71283,-23.09878 108.98499,-38.71061 34.56098,-15.29015 69.06914,-30.70181 103.60763,-46.04392 148.81735,-66.1912 297.63855,-132.37436 446.45345,-198.5706 8.8478,-4.44955 17.7053,-8.88423 26.7012,-13.0293 14.7424,-6.76223 30.0891,-12.8361 46.0066,-16.45024 4.5508,-1.05413 9.1445,-1.91596 13.7571,-2.65132 1.3173,-0.18921 2.8678,-0.44145 4.281,-0.62112 11.9581,-1.65321 24.0653,-2.27661 36.0838,-2.57239 15.8342,-0.35647 31.6733,-0.12099 47.5098,-0.16931 94.9851,0.0316 189.9703,0.0688 284.9555,0.10501 0.011,-38 0.028,-76 0.039,-114 -109.1867,-0.0375 -218.3735,-0.0809 -327.5601,-0.075 -0.2391,0.004 -0.4781,0.008 -0.7172,0.0125`;
+      this._maskPath = new Path2D(maskPathData);
+
+      if (this.config?.animation !== false) {
+        this.startParticleAnimation();
+      }
+    }
+
+    // Apply initial gradient colours if hass data is already available.
+    if (this._hass) this.updateSvgGradients();
   }
 
   protected updated(changedProps: Map<string, unknown>): void {
     if (changedProps.has("_hass")) {
       this.updateSvgGradients();
+      // Start/stop particle animation based on data availability and config.
+      const animationEnabled = this.config?.animation !== false;
+      if (animationEnabled && this._hass && this._flowPaths && !this._animationFrame) {
+        this.startParticleAnimation();
+      } else if (!animationEnabled || !this._hass) {
+        if (this._animationFrame) {
+          this.stopParticleAnimation();
+        }
+      }
     }
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
-    this.destroyParticleSystem();
+    this.stopParticleAnimation();
+    if (this._canvas && this._canvas.parentNode) {
+      this._canvas.parentNode.removeChild(this._canvas);
+    }
+    this._canvas = undefined;
+    this._canvasCtx = undefined;
   }
 
-  // ── SVG gradients ──────────────────────────
+  // ── Particle animation ────────────────────────
 
-  private updateSvgGradients(): void {
-    if (!this.config) return;
+  private startParticleAnimation(): void {
+    if (this._animationFrame) return;
+    this._lastFrameTime = performance.now();
+    this.animateParticles();
+  }
 
-    const svg = this.renderRoot.querySelector<SVGElement>("svg");
-    if (!svg) return;
+  private stopParticleAnimation(): void {
+    if (this._animationFrame) {
+      cancelAnimationFrame(this._animationFrame);
+      this._animationFrame = undefined;
+      this._particles = [];
+    }
+  }
+
+  private animateParticles = (): void => {
+    const now = performance.now();
+    const dt = (now - this._lastFrameTime) / 1000; // seconds
+    this._lastFrameTime = now;
+
+    this.updateParticles(dt);
+    this.renderParticles();
+
+    this._animationFrame = requestAnimationFrame(this.animateParticles);
+  };
+
+  private updateParticles(dt: number): void {
+    if (!this._flowPaths || !this._gradientStops || !this.config) return;
 
     const outdoor = this.getNumericState(this.config.outdoor_temp);
     const supply  = this.getNumericState(this.config.supply_temp);
     const extract = this.getNumericState(this.config.extract_temp);
     const exhaust = this.getNumericState(this.config.exhaust_temp);
 
+    if (outdoor === null || supply === null || extract === null || exhaust === null) {
+      this._particles = [];
+      return;
+    }
+
     const path1Temps = buildGradientTemps(outdoor, supply);
-    const path2Temps = buildGradientTemps(exhaust,  extract);
+    const path2Temps = buildGradientTemps(exhaust, extract);
+
+    const allTemps = [...path1Temps, ...path2Temps];
+    const minTemp = Math.min(...allTemps);
+    const maxTemp = Math.max(...allTemps);
+    const range = Math.max(maxTemp - minTemp, 0.1);
+    const normalise = (t: number) => (t - minTemp) / range;
+
+    // Spawn new particles periodically (~8 per second per path).
+    const spawnChance = 0.20 * dt * 60;
+    const PARTICLE_SPEED = 0.2; // progress per second (constant for all particles)
+    const MAX_OFFSET = 0.8; // keep particles away from stroke edges (0.7 = 70% of half-width)
+    for (let pathIndex = 0; pathIndex < 2; pathIndex++) {
+      if (Math.random() < spawnChance) {
+        const size = 3 + Math.random() * 2;
+        // Spawn biased towards center of stroke, clamped away from edges.
+        const rawOffset = Math.random() * 2 - 1; // -1 to 1
+        const biasedOffset = Math.sign(rawOffset) * Math.pow(Math.abs(rawOffset), 1.5); // bias toward 0
+        const offset = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, biasedOffset)); // clamp
+        this._particles.push({
+          progress: 0,
+          speed: PARTICLE_SPEED,
+          size,
+          pathIndex: pathIndex as 0 | 1,
+          color: tempToColor(normalise(pathIndex === 0 ? path1Temps[0] : path2Temps[0])),
+          offset,
+          trail: [],
+        });
+      }
+    }
+
+    // Update existing particles.
+    for (const p of this._particles) {
+      // Add current position to trail before updating progress.
+      p.trail.unshift({ progress: p.progress, offset: p.offset });
+      // Keep trail length limited (max 8 segments).
+      if (p.trail.length > 8) p.trail.pop();
+
+      p.progress += p.speed * dt;
+
+      // Update color based on position along gradient.
+      const temps = p.pathIndex === 0 ? path1Temps : path2Temps;
+      const temp = lerp(temps[0], temps[3], p.progress);
+      p.color = tempToColor(normalise(temp));
+    }
+
+    // Remove particles that reached the end.
+    this._particles = this._particles.filter((p) => p.progress < 1);
+  }
+
+private renderParticles(): void {
+    if (!this._canvas || !this._canvasCtx || !this._pathPoints.length || !this._particles.length) return;
+
+    const ctx = this._canvasCtx;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Canvas is inside SVG foreignObject with viewBox coordinates.
+    // Use SVG viewBox dimensions directly.
+    const VIEWBOX_WIDTH = 1629;
+    const VIEWBOX_HEIGHT = 640;
+
+    const width = VIEWBOX_WIDTH * dpr;
+    const height = VIEWBOX_HEIGHT * dpr;
+
+    // Resize canvas if needed.
+    if (this._canvas.width !== width || this._canvas.height !== height) {
+      this._canvas.width = width;
+      this._canvas.height = height;
+      this._canvas.style.width = `${VIEWBOX_WIDTH}px`;
+      this._canvas.style.height = `${VIEWBOX_HEIGHT}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Clear canvas (in viewBox coordinates).
+    ctx.clearRect(0, 0, VIEWBOX_WIDTH, VIEWBOX_HEIGHT);
+
+    const strokeWidth = 90; // matches SVG stroke-width
+    const SAMPLE_COUNT = 100;
+
+    /** Get interpolated point and tangent from precomputed path data. */
+    const getPathData = (pathIndex: number, progress: number) => {
+      const { points } = this._pathPoints[pathIndex];
+      const idx = progress * SAMPLE_COUNT;
+      const i = Math.floor(idx);
+      const f = idx - i;
+      const a = points[Math.min(i, SAMPLE_COUNT)];
+      const b = points[Math.min(i + 1, SAMPLE_COUNT)];
+      return {
+        x: a.x + (b.x - a.x) * f,
+        y: a.y + (b.y - a.y) * f,
+        tx: a.tx + (b.tx - a.tx) * f,
+        ty: a.ty + (b.ty - a.ty) * f,
+      };
+    };
+
+    const FADE_IN_END = 0.15;
+    const FADE_OUT_START = 0.85;
+
+    const renderParticle = (progress: number, offset: number, size: number, baseOpacity: number, pathIndex: number) => {
+      const { x, y, tx, ty } = getPathData(pathIndex, progress);
+
+      // Perpendicular vector: (-ty, tx) rotated 90° CCW from tangent.
+      // For consistent spread on both paths, ensure perpendicular points to "left" of flow direction.
+      const px = -ty;
+      const py = tx;
+
+      const offsetX = px * offset * (strokeWidth / 2);
+      const offsetY = py * offset * (strokeWidth / 2);
+
+      let progressOpacity = 1;
+      if (progress < FADE_IN_END) {
+        progressOpacity = progress / FADE_IN_END;
+      } else if (progress > FADE_OUT_START) {
+        progressOpacity = (1 - progress) / (1 - FADE_OUT_START);
+      }
+      const opacity = baseOpacity * progressOpacity;
+
+      const finalX = x + offsetX;
+      const finalY = y + offsetY;
+
+      // Use mask path for precise clipping: path 1 (index 0) goes under path 2 in crossing.
+      // The mask path (path9) defines the filled region where crossing occurs.
+      // Do check in viewBox coordinates (without DPR transform).
+      if (pathIndex === 0 && this._maskPath) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to viewBox coordinates
+        if (ctx.isPointInPath(this._maskPath, finalX, finalY)) {
+          ctx.restore();
+          return; // particle in crossing region, skip it (goes under)
+        }
+        ctx.restore();
+      }
+
+      ctx.beginPath();
+      ctx.arc(finalX, finalY, size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+      ctx.fill();
+    };
+
+    for (const p of this._particles) {
+      // Render trail (oldest first).
+      for (let i = p.trail.length - 1; i >= 0; i--) {
+        const t = p.trail[i];
+        const trailProgress = 1 - i / (p.trail.length - 1);
+        const opacity = 0.1 * trailProgress;
+        const size = p.size * (0.5 + 0.5 * trailProgress);
+        renderParticle(t.progress, t.offset, size, opacity, p.pathIndex);
+      }
+
+      // Render main particle (head).
+      renderParticle(p.progress, p.offset, p.size, 0.4, p.pathIndex);
+    }
+  }
+
+  // ── SVG gradients ──────────────────────────
+
+  private updateSvgGradients(): void {
+    if (!this.config || !this._gradientStops) return;
+
+    const outdoor = this.getNumericState(this.config.outdoor_temp);
+    const supply  = this.getNumericState(this.config.supply_temp);
+    const extract = this.getNumericState(this.config.extract_temp);
+    const exhaust = this.getNumericState(this.config.exhaust_temp);
+
+    // If any temperature is unavailable, leave the gradients in their last
+    // known state rather than collapsing them around a bogus 0.
+    if (outdoor === null || supply === null || extract === null || exhaust === null) {
+      return;
+    }
+
+    const path1Temps = buildGradientTemps(outdoor, supply);
+    // Path 2 runs right-to-left (extract→exhaust), so args are swapped.
+    const path2Temps = buildGradientTemps(exhaust, extract);
 
     const allTemps = [...path1Temps, ...path2Temps];
     const minTemp  = Math.min(...allTemps);
     const maxTemp  = Math.max(...allTemps);
     const range    = Math.max(maxTemp - minTemp, 0.1);
-
     const normalise = (t: number) => (t - minTemp) / range;
 
-    applyGradient(svg, GRADIENT_IDS.path1, path1Temps, normalise);
-    applyGradient(svg, GRADIENT_IDS.path2, path2Temps, normalise);
-  }
-
-  // ── Particle system ────────────────────────
-
-  private initParticleSystem(): void {
-    const wrap = this.renderRoot.querySelector<HTMLElement>(".wrap");
-    if (!wrap) return;
-
-    // Hidden SVG for path measurement (getTotalLength / getPointAtLength)
-    const ns = "http://www.w3.org/2000/svg";
-    this._tmpSvg = document.createElementNS(ns, "svg") as SVGSVGElement;
-    this._tmpSvg.setAttribute("viewBox", `0 0 ${SVG_W} ${SVG_H}`);
-    this._tmpSvg.style.cssText =
-      "position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;overflow:hidden;";
-    document.body.appendChild(this._tmpSvg);
-
-    const makePath = (d: string): SVGPathElement => {
-      const p = document.createElementNS(ns, "path") as SVGPathElement;
-      p.setAttribute("d", d);
-      this._tmpSvg!.appendChild(p);
-      return p;
-    };
-
-    this._svgPath1 = makePath(PATH1_D);
-    this._svgPath2 = makePath(PATH2_D);
-
-    // Pre-build the mask Path2D (in SVG units; we'll scale it at draw time)
-    this._maskPath = new Path2D(MASK_CUTOUT_D);
-
-    // Main canvas overlay — sits above the SVG but below the label overlay
-    const canvas = document.createElement("canvas");
-    canvas.style.cssText =
-      "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;";
-    wrap.appendChild(canvas);
-    this._canvas = canvas;
-    this._ctx = canvas.getContext("2d") ?? undefined;
-
-    // Offscreen canvas for path1 particles (same size, resized together)
-    this._offscreen = document.createElement("canvas");
-    this._offCtx = this._offscreen.getContext("2d") ?? undefined;
-
-    const resize = (): void => {
-      const r = wrap.getBoundingClientRect();
-      canvas.width  = r.width;
-      canvas.height = r.height;
-      if (this._offscreen) {
-        this._offscreen.width  = r.width;
-        this._offscreen.height = r.height;
-      }
-    };
-    resize();
-    this._resizeObserver = new ResizeObserver(resize);
-    this._resizeObserver.observe(wrap);
-
-    // Spawn particles — staggered t so they fill the path immediately.
-    // Pre-warm happens lazily on the first frame that has valid dimensions,
-    // since getBoundingClientRect() returns 0×0 synchronously in firstUpdated.
-    this._particles = [
-      ...Array.from({ length: PARTICLE_COUNT }, () =>
-        new Particle(this._svgPath1!, particleColor)
-      ),
-      ...Array.from({ length: PARTICLE_COUNT }, () =>
-        new Particle(this._svgPath2!, particleColor)
-      ),
-    ];
-
-    let warmed = false;
-
-    const loop = (): void => {
-      this._animFrame = requestAnimationFrame(loop);
-      if (!this._ctx || !this._canvas || !this._offCtx || !this._offscreen) return;
-
-      const { width, height } = this._canvas;
-      const r = wrap.getBoundingClientRect();
-      const scaleX = r.width  / SVG_W;
-      const scaleY = r.height / SVG_H;
-
-      // Defer pre-warm until the wrap has real dimensions (SVG fully laid out).
-      // Running it with scale=0 would collapse all tail points to (0,0).
-      if (!warmed) {
-        if (r.width > 0 && r.height > 0) {
-          for (const p of this._particles) {
-            for (let step = 0; step < TAIL_LENGTH; step++) p.update(scaleX, scaleY);
-          }
-          warmed = true;
-        } else {
-          // Dimensions not ready yet — skip this frame entirely
-          return;
-        }
-      }
-
-      // ── Split particles into path1 (first half) and path2 (second half) ──
-      const path1Particles = this._particles.slice(0, PARTICLE_COUNT);
-      const path2Particles = this._particles.slice(PARTICLE_COUNT);
-
-      // ── 1. Draw path1 particles to offscreen canvas ──
-      this._offCtx.clearRect(0, 0, width, height);
-      for (const p of path1Particles) {
-        p.update(scaleX, scaleY);
-        p.draw(this._offCtx);
-      }
-
-      // ── 2. Erase the mask-cutout region from the offscreen canvas ──
-      //    The mask cutout is in SVG units; scale it to canvas pixels.
-      this._offCtx.save();
-      this._offCtx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-      this._offCtx.globalCompositeOperation = "destination-out";
-      this._offCtx.fillStyle = "black"; // alpha doesn't matter — GCO erases
-      this._offCtx.fill(this._maskPath!);
-      this._offCtx.restore();
-
-      // ── 3. Composite to main canvas: path1 first (behind), then path2 ──
-      this._ctx.clearRect(0, 0, width, height);
-
-      // Draw masked path1
-      this._ctx.drawImage(this._offscreen, 0, 0);
-
-      // Draw path2 on top (no mask needed — it passes in front)
-      for (const p of path2Particles) {
-        p.update(scaleX, scaleY);
-        p.draw(this._ctx);
-      }
-    };
-    loop();
-  }
-
-  private destroyParticleSystem(): void {
-    if (this._animFrame !== undefined) {
-      cancelAnimationFrame(this._animFrame);
-      this._animFrame = undefined;
-    }
-    this._resizeObserver?.disconnect();
-    this._resizeObserver = undefined;
-    this._tmpSvg?.remove();
-    this._tmpSvg = undefined;
-    this._canvas?.remove();
-    this._canvas = undefined;
-    this._offscreen = undefined;
-    this._offCtx = undefined;
-    this._maskPath = undefined;
-    this._particles = [];
+    applyGradientToStops(this._gradientStops.path1, path1Temps, normalise);
+    applyGradientToStops(this._gradientStops.path2, path2Temps, normalise);
   }
 
   // ── render helpers ─────────────────────────
@@ -634,43 +614,38 @@ class HRVCard extends LitElement {
   private renderLabel(
     cssClass: string,
     entity: string,
-    value: number,
+    value: number | null,
     label: string,
     unit: string = "°C",
-    labelClass: string = "label",
     decimals: number = 1
   ) {
-    if (labelClass === "flow-label") {
-      // Flow rate: background pill shaped to match the stroke height, text centred within
-      return html`
-        <div
-          class="flow-label ${cssClass}"
-          title=${label}
-          @click=${() => this.handleMoreInfo(entity)}
-        >
-          <div class="flow-bg"></div>
-          <span class="flow-value">${value.toFixed(decimals)}</span>
-          <span class="flow-unit">${unit}</span>
-        </div>
-      `;
-    }
+    const text = value === null ? "—" : value.toFixed(decimals);
 
-    // Temperature label: large value + inline unit, small name below
     return html`
       <div
         class="label ${cssClass}"
         title=${label}
         @click=${() => this.handleMoreInfo(entity)}
       >
-        <span class="temp-row"><span class="temp-value">${value.toFixed(decimals)}</span><span class="temp-unit">${unit}</span></span>
+        <span class="temp-row"><span class="temp-value">${text}</span><span class="temp-unit">${unit}</span></span>
         <span class="temp-name">${label}</span>
       </div>
     `;
   }
 
   private renderSensorChip(sensor: SensorConfig) {
-    const { display, unit, isBinary, isOn } = this.getSensorDisplayInfo(sensor);
-    const label = sensor.label ?? sensor.entity.split(".")[1].replace(/_/g, " ");
+    const { display, unit, isBinary, isOn, isHeat } = this.getSensorDisplayInfo(sensor);
+    const label =
+      sensor.label ??
+      (sensor.entity.split(".").pop() ?? sensor.entity).replace(/_/g, " ");
+
+    const dotClass = isBinary
+      ? isHeat && isOn
+        ? "dot--heat"
+        : isOn
+        ? "dot--on"
+        : "dot--off"
+      : "";
 
     return html`
       <div
@@ -678,7 +653,7 @@ class HRVCard extends LitElement {
         title=${sensor.entity}
         @click=${() => this.handleMoreInfo(sensor.entity)}
       >
-        ${isBinary ? html`<span class="sensor-dot ${isOn ? "dot--on" : "dot--off"}"></span>` : ""}
+        ${isBinary ? html`<span class="sensor-dot ${dotClass}"></span>` : ""}
         <span class="sensor-label">${label}</span>
         <span class="sensor-value ${isBinary ? (isOn ? "badge--on" : "badge--off") : ""}">
           ${display}${!isBinary && unit ? html`<span class="sensor-unit"> ${unit}</span>` : ""}
@@ -693,9 +668,15 @@ class HRVCard extends LitElement {
 
     return html`
       <div class="sensor-row">
-        ${sensors.map((s) => this.renderSensorChip(s))}
+        ${this._renderSensorChips(sensors)}
       </div>
     `;
+  }
+
+  /** Build the chip templates outside the render function so the template
+   * expression stays a plain array literal (avoids `.map` in markup). */
+  private _renderSensorChips(sensors: SensorConfig[]): TemplateResult[] {
+    return sensors.map((s) => this.renderSensorChip(s));
   }
 
   // ── render ─────────────────────────────────
@@ -712,7 +693,7 @@ class HRVCard extends LitElement {
         </div>
 
         <div class="wrap">
-          <div class="svg">${unsafeSVG(hrvSvg)}</div>
+          <div class="svg-container"></div>
           <div class="vignette"></div>
 
           <div class="overlay">
@@ -721,25 +702,6 @@ class HRVCard extends LitElement {
             ${this.renderLabel("extract", extract_temp, this.getNumericState(extract_temp), "Extract")}
             ${this.renderLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust")}
 
-            ${this.config.supply_flow ? this.renderLabel(
-              "supply-flow",
-              this.config.supply_flow,
-              this.getNumericState(this.config.supply_flow),
-              "Supply flow",
-              this.getEntityAttribute<string>(this.config.supply_flow, "unit_of_measurement") || "m³/h",
-              "flow-label",
-              0
-            ) : ""}
-
-            ${this.config.exhaust_flow ? this.renderLabel(
-              "exhaust-flow",
-              this.config.exhaust_flow,
-              this.getNumericState(this.config.exhaust_flow),
-              "Exhaust flow",
-              this.getEntityAttribute<string>(this.config.exhaust_flow, "unit_of_measurement") || "m³/h",
-              "flow-label",
-              0
-            ) : ""}
           </div>
         </div>
 
@@ -758,35 +720,37 @@ class HRVCard extends LitElement {
 
     ha-card {
       overflow: hidden;
+      border-radius: var(--ha-card-border-radius, var(--card-border-radius, 12px));
       font-family: var(--ha-card-header-font-family, var(--primary-font-family, var(--ha-font-family-body, inherit)));
     }
 
     /* ── Header ───────────────────────────────── */
 
     .mini-header {
-      padding: 14px 16px 0;
+      padding: 16px 16px 0;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
     .mini-title {
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--secondary-text-color);
-      opacity: 0.7;
+      color: var(--primary-text-color);
     }
 
-    /* ── Wrap + vignette ──────────────────────── */
+    /* ── Wrap + svg-container ─────────────────── */
 
     .wrap {
       position: relative;
       width: 100%;
     }
 
-    .svg svg {
+    .svg-container {
+      z-index: 3;
+    }
+
+    .svg-container svg {
       width: 100%;
       height: auto;
       display: block;
@@ -799,7 +763,7 @@ class HRVCard extends LitElement {
       z-index: 2;
       background:
         radial-gradient(ellipse 55% 60% at 50% 50%, transparent 40%, var(--ha-card-background, var(--card-background-color, #fff)) 100%);
-      opacity: 0.55;
+      opacity: 0.12;
     }
 
     .overlay {
@@ -833,10 +797,9 @@ class HRVCard extends LitElement {
 
     .temp-value {
       font-size: clamp(14px, 1.5vw, 19px);
-      font-weight: 700;
+      font-weight: 600;
       line-height: 1;
       color: var(--primary-text-color);
-      letter-spacing: -0.02em;
       transition: opacity 0.15s ease;
     }
 
@@ -859,19 +822,6 @@ class HRVCard extends LitElement {
       line-height: 1;
     }
 
-    /*
-     * SVG viewBox: 1629 × 640. Stroke-width: 90 (half = 45px).
-     * Path endpoints:
-     *   outdoor : left,  y=185  →  top of stroke = 140/640 = 21.875%
-     *   extract : right, y=185  →  same
-     *   exhaust : left,  y=516  →  top of stroke = 471/640 = 73.594%
-     *   supply  : right, y=516  →  same
-     * Labels anchor their bottom edge to the top of the stroke, left/right
-     * aligned to the start/end of the path (x≈49 → 3%, x≈1590 → 97.6%).
-     * A small gap (4px) keeps them off the stroke.
-     */
-
-    /* top stroke — label bottom sits just above the stroke top edge */
     .outdoor {
       left: 3%;
       top: calc(21.875% - 4px);
@@ -885,7 +835,6 @@ class HRVCard extends LitElement {
       align-items: flex-end;
     }
 
-    /* bottom stroke — label bottom sits just above the stroke top edge */
     .exhaust {
       left: 3%;
       top: calc(73.594% - 4px);
@@ -899,89 +848,13 @@ class HRVCard extends LitElement {
       align-items: flex-end;
     }
 
-    /* ── Flow labels ──────────────────────────── */
-
-    /*
-     * Each flow label is positioned at the vertical centre of its stroke.
-     * The .flow-bg child is a pill whose height matches the stroke (90/640 = 14.0625%
-     * of .wrap height), achieved by anchoring it to the wrap via absolute positioning
-     * from the label's own stacking context. The text is centred on top.
-     *
-     * Stroke centre y:  path1 = 185/640 = 28.906%,  path2 = 516/640 = 80.625%
-     */
-    .flow-label {
-      position: absolute;
-      display: inline-flex;
-      align-items: flex-end;
-      gap: 4px;
-      pointer-events: auto;
-      cursor: pointer;
-      top: 0;
-      height: 100%;
-      padding-bottom: 6px;
-    }
-
-    .flow-bg {
-      position: absolute;
-      inset-block: 0;
-      left: -10px;
-      right: -10px;
-      border-radius: 0 999px 999px 0;
-      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 35%, transparent);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      border: 1px solid color-mix(in srgb, var(--divider-color, #fff) 20%, transparent);
-      border-left: none;
-      pointer-events: none;
-    }
-
-    .flow-label:hover .flow-bg {
-      background: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #fff)) 55%, transparent);
-    }
-
-    .flow-value {
-      position: relative;
-      font-size: clamp(10px, 1vw, 13px);
-      font-weight: 500;
-      color: #fff;
-      letter-spacing: 0;
-      opacity: 0.55;
-    }
-
-    .flow-unit {
-      position: relative;
-      font-size: clamp(8px, 0.8vw, 10px);
-      font-weight: 400;
-      color: #fff;
-      opacity: 0.35;
-    }
-
-    /*
-     * Positioning: centred on stroke y, left-aligned with temp labels.
-     * Stroke centres: path1 y=185/640=28.906%, path2 y=516/640=80.625%
-     * Height of label matches stroke: 90/640=14.0625% of wrap — applied via
-     * explicit height so the pill pill covers the full stroke band.
-     */
-    .supply-flow {
-      left: 3%;
-      top: 28.906%;
-      height: 14.0625%;
-      transform: translateY(-50%);
-    }
-    .exhaust-flow {
-      left: 3%;
-      top: 80.625%;
-      height: 14.0625%;
-      transform: translateY(-50%);
-    }
-
     /* ── Sensor row ───────────────────────────── */
 
     .sensor-row {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      padding: 8px 12px 14px;
+      padding: 8px 16px 16px;
     }
 
     .sensor-chip {
@@ -990,17 +863,16 @@ class HRVCard extends LitElement {
       gap: 5px;
       padding: 5px 10px;
       border-radius: 20px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.04));
-      border: 1px solid var(--divider-color, rgba(0,0,0,0.06));
+      background: var(--secondary-background-color);
+      border: 1px solid var(--divider-color);
       cursor: pointer;
       transition: background 0.15s ease;
     }
 
     .sensor-chip:hover {
-      background: var(--secondary-background-color, rgba(0,0,0,0.08));
+      background: color-mix(in srgb, var(--primary-color) 8%, var(--secondary-background-color));
     }
 
-    /* Status dot for binary sensors */
     .sensor-dot {
       width: 6px;
       height: 6px;
@@ -1009,6 +881,7 @@ class HRVCard extends LitElement {
     }
 
     .dot--on  { background: var(--success-color, #4caf50); box-shadow: 0 0 4px var(--success-color, #4caf50); }
+    .dot--heat { background: var(--error-color, #f44336); box-shadow: 0 0 4px var(--error-color, #f44336); }
     .dot--off { background: var(--disabled-color, rgba(0,0,0,0.25)); }
 
     .sensor-label {
@@ -1020,7 +893,7 @@ class HRVCard extends LitElement {
 
     .sensor-value {
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       color: var(--primary-text-color);
     }
 

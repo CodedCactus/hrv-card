@@ -12,7 +12,6 @@ export default defineConfig({
         ecma: 2020,
         module: true,          // ES module — enables stricter optimisations
         passes: 3,             // multiple passes squeeze out more
-        drop_console: true,
         drop_debugger: true,
         pure_getters: true,    // assume getters have no side-effects
         unsafe_arrows: true,   // convert functions to arrows where safe
