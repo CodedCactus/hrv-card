@@ -110,6 +110,7 @@ interface Particle {
 interface TrailPoint {
   progress: number;  // progress along path
   offset: number;    // perpendicular offset
+  time: number;      // performance.now() when the point was recorded
 }
 
 function queryGradientStops(svg: SVGSVGElement): GradientStops {
@@ -245,6 +246,19 @@ class HRVCard extends LitElement {
       if (typeof value !== "string" || value.trim() === "") {
         throw new Error(
           `HRV Card is missing required field: "${key}". Required fields: ${REQUIRED_CONFIG_KEYS.join(", ")}.`
+        );
+      }
+    }
+
+    if (config.sensors !== undefined && !Array.isArray(config.sensors)) {
+      throw new Error('HRV Card "sensors" must be a list.');
+    }
+
+    for (const [index, sensor] of (config.sensors ?? []).entries()) {
+      const entity = (sensor as { entity?: unknown } | null)?.entity;
+      if (typeof entity !== "string" || entity.trim() === "") {
+        throw new Error(
+          `HRV Card sensor at index ${index} is missing a valid "entity".`
         );
       }
     }
@@ -508,16 +522,18 @@ class HRVCard extends LitElement {
 
   private animateParticles = (): void => {
     const now = performance.now();
-    const dt = (now - this._lastFrameTime) / 1000; // seconds
+    // Clamp the timestep so a suspended tab (rAF pauses) resuming after a long
+    // gap does not fling every particle past the end of its path.
+    const dt = Math.min((now - this._lastFrameTime) / 1000, 0.05);
     this._lastFrameTime = now;
 
-    this.updateParticles(dt);
+    this.updateParticles(dt, now);
     this.renderParticles();
 
     this._animationFrame = requestAnimationFrame(this.animateParticles);
   };
 
-  private updateParticles(dt: number): void {
+  private updateParticles(dt: number, now: number): void {
     if (!this._flowPaths) return;
 
     // No temperatures => nothing to visualize; clear the field.
@@ -549,11 +565,19 @@ class HRVCard extends LitElement {
     }
 
     // Update existing particles.
+    // Trail length is pruned by elapsed time (not frame count) so it looks the
+    // same at 30, 60 or 144 Hz; the hard cap only bounds very high refresh
+    // rates and a long hidden-tab gap.
+    const TRAIL_DURATION_MS = 120;
+    const MAX_TRAIL_POINTS = 24;
+    const trailCutoff = now - TRAIL_DURATION_MS;
     for (const p of this._particles) {
       // Add current position to trail before updating progress.
-      p.trail.unshift({ progress: p.progress, offset: p.offset });
-      // Keep trail length limited (max 8 segments).
-      if (p.trail.length > 8) p.trail.pop();
+      p.trail.unshift({ progress: p.progress, offset: p.offset, time: now });
+      while (p.trail.length > 1 && p.trail[p.trail.length - 1].time < trailCutoff) {
+        p.trail.pop();
+      }
+      if (p.trail.length > MAX_TRAIL_POINTS) p.trail.length = MAX_TRAIL_POINTS;
 
       p.progress += p.speed * dt;
     }
@@ -656,10 +680,12 @@ class HRVCard extends LitElement {
     };
 
     for (const p of this._particles) {
-      // Render trail (oldest first).
+      // Render trail (oldest first). `trailSpan` is guarded because a particle
+      // has a single trail point on its first frame (length - 1 === 0).
+      const trailSpan = Math.max(1, p.trail.length - 1);
       for (let i = p.trail.length - 1; i >= 0; i--) {
         const t = p.trail[i];
-        const trailProgress = 1 - i / (p.trail.length - 1);
+        const trailProgress = 1 - i / trailSpan;
         const opacity = 0.1 * trailProgress;
         const size = p.size * (0.5 + 0.5 * trailProgress);
         renderParticle(t.progress, t.offset, size, opacity, p.pathIndex);
