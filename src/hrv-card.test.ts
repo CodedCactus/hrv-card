@@ -151,4 +151,31 @@ describe("HRVCard", () => {
     expect(() => el.setConfig({ ...CONFIG, sensors: [{ label: "x" }] })).toThrow(/entity/);
     expect(() => el.setConfig({ ...CONFIG, sensors: [{ entity: "  " }] })).toThrow(/entity/);
   });
+
+  it("renders temperature labels with the entity's unit", async () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    document.body.appendChild(el);
+    el.setConfig(CONFIG);
+    const hass = makeHass({ out: 68, sup: 86, ext: 72, exh: 50 });
+    hass.states["sensor.out"].attributes = { unit_of_measurement: "°F" };
+    el.hass = hass;
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelector(".outdoor .temp-unit")?.textContent).toBe("°F");
+    el.remove();
+  });
+
+  it("renders labels and chips as accessible buttons", async () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    document.body.appendChild(el);
+    el.setConfig({ ...CONFIG, sensors: [{ entity: "sensor.flow" }] });
+    el.hass = makeHass({ out: 5, sup: 30, ext: 22, exh: 10 });
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelectorAll("button.label").length).toBe(4);
+    const chip = el.shadowRoot.querySelector("button.sensor-chip");
+    expect(chip).toBeTruthy();
+    expect(chip?.getAttribute("type")).toBe("button");
+    el.remove();
+  });
 });

@@ -755,20 +755,23 @@ class HRVCard extends LitElement {
     entity: string,
     value: number | null,
     label: string,
-    unit: string = "°C",
     decimals: number = 1
   ) {
     const text = value === null ? "—" : value.toFixed(decimals);
+    // Show the sensor's own unit (°F users otherwise see a wrong °C label).
+    const unit = this.getEntityAttribute<string>(entity, "unit_of_measurement") ?? "°C";
 
     return html`
-      <div
+      <button
+        type="button"
         class="label ${cssClass}"
         title=${label}
+        aria-label=${`${label} temperature ${text} ${unit}`}
         @click=${() => this.handleMoreInfo(entity)}
       >
         <span class="temp-row"><span class="temp-value">${text}</span><span class="temp-unit">${unit}</span></span>
         <span class="temp-name">${label}</span>
-      </div>
+      </button>
     `;
   }
 
@@ -786,10 +789,14 @@ class HRVCard extends LitElement {
         : "dot--off"
       : "";
 
+    const valueText = !isBinary && unit ? `${display} ${unit}` : display;
+
     return html`
-      <div
+      <button
+        type="button"
         class="sensor-chip"
         title=${sensor.entity}
+        aria-label=${`${label}: ${valueText}`}
         @click=${() => this.handleMoreInfo(sensor.entity)}
       >
         ${isBinary ? html`<span class="sensor-dot ${dotClass}"></span>` : ""}
@@ -797,7 +804,7 @@ class HRVCard extends LitElement {
         <span class="sensor-value ${isBinary ? (isOn ? "badge--on" : "badge--off") : ""}">
           ${display}${!isBinary && unit ? html`<span class="sensor-unit"> ${unit}</span>` : ""}
         </span>
-      </div>
+      </button>
     `;
   }
 
@@ -921,10 +928,24 @@ class HRVCard extends LitElement {
       flex-direction: column;
       gap: 1px;
       cursor: pointer;
+      /* Native <button> reset */
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      font: inherit;
+      color: inherit;
+      text-align: inherit;
     }
 
     .label:hover .temp-value {
       opacity: 0.75;
+    }
+
+    .label:focus-visible,
+    .sensor-chip:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
     }
 
     .temp-row {
@@ -1006,6 +1027,9 @@ class HRVCard extends LitElement {
       border: 1px solid var(--divider-color);
       cursor: pointer;
       transition: background 0.15s ease;
+      /* Native <button> reset */
+      font: inherit;
+      color: inherit;
     }
 
     .sensor-chip:hover {
