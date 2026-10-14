@@ -541,10 +541,15 @@ private renderParticles(): void {
 
       // Use mask path for precise clipping: path 1 (index 0) goes under path 2 in crossing.
       // The mask path (path9) defines the filled region where crossing occurs.
+      // Do check in viewBox coordinates (without DPR transform).
       if (pathIndex === 0 && this._maskPath) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to viewBox coordinates
         if (ctx.isPointInPath(this._maskPath, finalX, finalY)) {
+          ctx.restore();
           return; // particle in crossing region, skip it (goes under)
         }
+        ctx.restore();
       }
 
       ctx.beginPath();
