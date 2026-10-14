@@ -72,6 +72,9 @@ const GRADIENT_IDS = {
   path2: "gradientPath2",
 } as const;
 
+/** Pixels per viewBox unit in the precomputed crossing-mask bitmap. */
+const MASK_RASTER_SCALE = 1;
+
 // ─────────────────────────────────────────────
 // Module-level SVG cache
 // ─────────────────────────────────────────────
@@ -176,11 +179,13 @@ class HRVCard extends LitElement {
   private _maskPath?: Path2D;
 
   /**
-   * Path-1 progress intervals that lie inside the crossing mask, precomputed
-   * once so per-frame hit tests are interval lookups instead of one
-   * `isPointInPath` call per rendered point.
+   * Rasterized crossing mask: one byte per viewBox unit, set where path 1 must
+   * be hidden (the black cutout in #curveMask). Precomputed once so per-frame
+   * hit tests become bitmap lookups instead of per-point `isPointInPath` calls,
+   * while still classifying each particle's actual offset position.
    */
-  private _crossingIntervals: [number, number][] = [];
+  private _maskBitmap?: Uint8Array;
+  private _maskBitmapWidth = 0;
 
   /** Displayed host width in CSS px (tracked via ResizeObserver). */
   private _displayWidth = 0;
@@ -475,7 +480,7 @@ class HRVCard extends LitElement {
         ?.getAttribute("d");
       if (maskPathData) this._maskPath = new Path2D(maskPathData);
 
-      this._computeCrossingIntervals();
+      this._computeMaskBitmap();
 
       this._syncAnimationState();
     }
@@ -619,65 +624,64 @@ class HRVCard extends LitElement {
   }
 
   /**
-   * Precompute the path-1 progress intervals that lie inside the crossing
-   * mask, so per-frame hit tests become interval lookups instead of an
-   * expensive `isPointInPath` call per rendered point. Sample boundaries are
-   * refined by bisection to well below a particle radius.
+   * Rasterize the crossing mask once (1 px per viewBox unit) so per-frame hit
+   * tests become bitmap lookups instead of an expensive `isPointInPath` call
+   * per rendered point. Kept in viewBox coordinates so each particle's offset
+   * position is classified exactly like the old per-point test.
    */
-  private _computeCrossingIntervals(): void {
-    this._crossingIntervals = [];
-    const ctx = this._canvasCtx;
-    const path = this._flowPaths?.[0];
-    const sampled = this._pathPoints[0];
-    const mask = this._maskPath;
-    if (!ctx || !path || !sampled || !mask || sampled.points.length < 2 || sampled.length <= 0) {
-      return;
+  private _computeMaskBitmap(): void {
+    this._maskBitmap = undefined;
+    this._maskBitmapWidth = 0;
+    if (!this._maskPath) return;
+
+    const viewBox = this._svg?.viewBox.baseVal;
+    const width = Math.ceil((viewBox?.width || 1629) * MASK_RASTER_SCALE);
+    const height = Math.ceil((viewBox?.height || 640) * MASK_RASTER_SCALE);
+
+    const raster = document.createElement("canvas");
+    raster.width = width;
+    raster.height = height;
+    const ctx = raster.getContext("2d");
+    if (!ctx) return;
+
+    // Fill the mask path opaque white on the *transparent* canvas; the alpha
+    // channel then marks the masked region (same nonzero winding rule as
+    // isPointInPath). An opaque background fill would make alpha non-zero
+    // everywhere and mask the whole canvas.
+    ctx.fillStyle = "#fff";
+    ctx.scale(MASK_RASTER_SCALE, MASK_RASTER_SCALE);
+    ctx.fill(this._maskPath);
+
+    const data = ctx.getImageData(0, 0, width, height).data;
+    const bitmap = new Uint8Array(width * height);
+    let masked = 0;
+    for (let i = 0; i < bitmap.length; i++) {
+      const bit = data[i * 4 + 3] > 0 ? 1 : 0;
+      bitmap[i] = bit;
+      masked += bit;
     }
 
-    const { points, length } = sampled;
-    const step = 1 / (points.length - 1);
+    // A sane mask always leaves part of the viewBox unmasked. An entirely
+    // masked (or empty) bitmap means rasterization failed, so fall back to no
+    // clipping rather than hiding every particle.
+    if (masked === 0 || masked === bitmap.length) return;
 
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    const inside = points.map((pt) => ctx.isPointInPath(mask, pt.x, pt.y));
-
-    // Bisect between an outside and an inside sample to locate the boundary.
-    const boundary = (outsideProgress: number, insideProgress: number): number => {
-      let lo = outsideProgress;
-      let hi = insideProgress;
-      for (let i = 0; i < 8; i++) {
-        const mid = (lo + hi) / 2;
-        const pt = path.getPointAtLength(mid * length);
-        if (ctx.isPointInPath(mask, pt.x, pt.y)) hi = mid;
-        else lo = mid;
-      }
-      return (lo + hi) / 2;
-    };
-
-    for (let i = 0; i < inside.length; i++) {
-      if (!inside[i]) continue;
-      let end = i;
-      while (end + 1 < inside.length && inside[end + 1]) end++;
-
-      const startProgress = i === 0 ? 0 : boundary((i - 1) * step, i * step);
-      const endProgress =
-        end === inside.length - 1 ? 1 : boundary((end + 1) * step, end * step);
-      this._crossingIntervals.push([startProgress, endProgress]);
-
-      i = end;
-    }
-
-    ctx.restore();
+    this._maskBitmap = bitmap;
+    this._maskBitmapWidth = width;
   }
 
-  /** True when a path-1 progress position lies inside the crossing mask. */
-  private _isInCrossing(progress: number): boolean {
-    for (const [start, end] of this._crossingIntervals) {
-      if (progress < start) return false;
-      if (progress <= end) return true;
-    }
-    return false;
+  /** True when a viewBox coordinate lies inside the crossing mask. */
+  private _isInMask(x: number, y: number): boolean {
+    const bitmap = this._maskBitmap;
+    const width = this._maskBitmapWidth;
+    if (!bitmap || width === 0) return false;
+
+    const px = Math.round(x * MASK_RASTER_SCALE);
+    const py = Math.round(y * MASK_RASTER_SCALE);
+    const height = Math.floor(bitmap.length / width);
+    if (px < 0 || py < 0 || px >= width || py >= height) return false;
+
+    return bitmap[py * width + px] === 1;
   }
 
   private renderParticles(): void {
@@ -741,10 +745,6 @@ class HRVCard extends LitElement {
     const FADE_OUT_START = 0.85;
 
     const renderParticle = (progress: number, offset: number, size: number, baseOpacity: number, pathIndex: number) => {
-      // Path 1 (index 0) goes under path 2 at the crossing: points whose
-      // progress lies in the precomputed masked intervals are skipped.
-      if (pathIndex === 0 && this._isInCrossing(progress)) return;
-
       const { x, y, tx, ty } = getPathData(pathIndex, progress);
 
       // Perpendicular vector: (-ty, tx) rotated 90° CCW from tangent.
@@ -765,6 +765,12 @@ class HRVCard extends LitElement {
 
       const finalX = x + offsetX;
       const finalY = y + offsetY;
+
+      // Path 1 (index 0) goes under path 2 at the crossing: skip points whose
+      // rendered (offset) position lies in the masked region.
+      if (pathIndex === 0 && this._isInMask(finalX, finalY)) {
+        return;
+      }
 
       ctx.beginPath();
       ctx.arc(finalX, finalY, size, 0, Math.PI * 2);

@@ -179,21 +179,18 @@ describe("HRVCard", () => {
     el.remove();
   });
 
-  it("classifies progress against precomputed crossing intervals", async () => {
+  it("classifies coordinates against the rasterized crossing mask", async () => {
     const el = await createCard();
-    el._crossingIntervals = [
-      [0.4, 0.6],
-      [0.8, 0.85],
-    ];
+    // 3x3 bitmap at MASK_RASTER_SCALE = 1; 1 = masked (particle hidden)
+    el._maskBitmap = new Uint8Array([1, 0, 1, 0, 1, 1, 0, 1, 1]);
+    el._maskBitmapWidth = 3;
 
-    expect(el._isInCrossing(0.2)).toBe(false);
-    expect(el._isInCrossing(0.39)).toBe(false);
-    expect(el._isInCrossing(0.4)).toBe(true);
-    expect(el._isInCrossing(0.5)).toBe(true);
-    expect(el._isInCrossing(0.6)).toBe(true);
-    expect(el._isInCrossing(0.61)).toBe(false);
-    expect(el._isInCrossing(0.8)).toBe(true);
-    expect(el._isInCrossing(0.86)).toBe(false);
+    expect(el._isInMask(0, 0)).toBe(true);
+    expect(el._isInMask(1, 0)).toBe(false);
+    expect(el._isInMask(2, 2)).toBe(true);
+    expect(el._isInMask(-1, 0)).toBe(false);
+    expect(el._isInMask(3, 0)).toBe(false);
+    expect(el._isInMask(0, 3)).toBe(false);
     el.remove();
   });
 });
