@@ -22,6 +22,7 @@ export interface HRVCardConfig {
   extract_temp: string;
   exhaust_temp: string;
   sensors?: SensorConfig[];
+  animation?: boolean; // enable/disable flow animation (default: true)
 }
 
 interface SensorConfig {
@@ -349,7 +350,9 @@ class HRVCard extends LitElement {
       const maskPathData = `m 1273.9551,128.39258 c -32.0637,0.58284 -64.2021,4.24638 -95.177,12.74756 -27.6382,7.50585 -54.2017,18.53026 -79.8197,31.25211 -3.304,1.61358 -6.583,3.1479 -9.8971,4.64693 -9.4165,4.22773 -18.8683,8.37419 -28.2909,12.58876 -173.97544,77.35812 -347.94584,154.7278 -521.92448,232.07869 -14.0354,6.10129 -28.11932,12.11071 -42.47092,17.43595 -2.33738,0.86672 -4.90909,1.79684 -7.25,2.62304 -12.65767,4.43483 -25.45548,8.30162 -38.63813,11.06951 -1.20711,0.23826 -2.51848,0.51874 -3.7589,0.75152 -3.92058,0.76101 -7.86027,1.42066 -11.81,2.01101 -1.15512,0.15932 -2.40872,0.35404 -3.57538,0.50199 -10.0584,1.34122 -20.21971,2.07689 -30.39554,2.4725 -16.58735,0.63549 -33.28867,0.38907 -49.92752,0.39986 -104.49023,-0.1153 -208.98047,-0.23191 -313.470702,-0.34701 -0.04109,38 -0.08391,76 -0.125,114 115.416492,0.12179 230.833112,0.24509 346.249572,0.32646 33.67553,-0.39328 67.41881,-3.8015 100.17893,-11.78258 37.57577,-9.01861 73.71283,-23.09878 108.98499,-38.71061 34.56098,-15.29015 69.06914,-30.70181 103.60763,-46.04392 148.81735,-66.1912 297.63855,-132.37436 446.45345,-198.5706 8.8478,-4.44955 17.7053,-8.88423 26.7012,-13.0293 14.7424,-6.76223 30.0891,-12.8361 46.0066,-16.45024 4.5508,-1.05413 9.1445,-1.91596 13.7571,-2.65132 1.3173,-0.18921 2.8678,-0.44145 4.281,-0.62112 11.9581,-1.65321 24.0653,-2.27661 36.0838,-2.57239 15.8342,-0.35647 31.6733,-0.12099 47.5098,-0.16931 94.9851,0.0316 189.9703,0.0688 284.9555,0.10501 0.011,-38 0.028,-76 0.039,-114 -109.1867,-0.0375 -218.3735,-0.0809 -327.5601,-0.075 -0.2391,0.004 -0.4781,0.008 -0.7172,0.0125`;
       this._maskPath = new Path2D(maskPathData);
 
-      this.startParticleAnimation();
+      if (this.config?.animation !== false) {
+        this.startParticleAnimation();
+      }
     }
 
     // Apply initial gradient colours if hass data is already available.
@@ -359,11 +362,14 @@ class HRVCard extends LitElement {
   protected updated(changedProps: Map<string, unknown>): void {
     if (changedProps.has("_hass")) {
       this.updateSvgGradients();
-      // Start/stop particle animation based on data availability.
-      if (this._hass && this._flowPaths && !this._animationFrame) {
+      // Start/stop particle animation based on data availability and config.
+      const animationEnabled = this.config?.animation !== false;
+      if (animationEnabled && this._hass && this._flowPaths && !this._animationFrame) {
         this.startParticleAnimation();
-      } else if (!this._hass && this._animationFrame) {
-        this.stopParticleAnimation();
+      } else if (!animationEnabled || !this._hass) {
+        if (this._animationFrame) {
+          this.stopParticleAnimation();
+        }
       }
     }
   }

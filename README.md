@@ -87,6 +87,7 @@ sensors:
 | `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
 | `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
 | `sensors` | No | array | Array of additional sensors to display |
+| `animation` | No | boolean | Enable flow animation (default: `true`) |
 
 ### Sensor Configuration
 
