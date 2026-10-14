@@ -144,4 +144,11 @@ describe("HRVCard", () => {
     expect(el._maskPath).toBeTruthy();
     el.remove();
   });
+
+  it("rejects malformed sensor config", () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    expect(() => el.setConfig({ ...CONFIG, sensors: "nope" })).toThrow(/sensors/);
+    expect(() => el.setConfig({ ...CONFIG, sensors: [{ label: "x" }] })).toThrow(/entity/);
+    expect(() => el.setConfig({ ...CONFIG, sensors: [{ entity: "  " }] })).toThrow(/entity/);
+  });
 });
