@@ -1,6 +1,13 @@
 import { defineConfig } from "vite";
+import pkg from "./package.json";
 
 export default defineConfig({
+  define: {
+    // Single source of truth for the runtime version banner: package.json,
+    // overridable per build through the APP_VERSION env var (used by CI).
+    __APP_VERSION__: JSON.stringify(process.env.APP_VERSION ?? pkg.version),
+  },
+
   build: {
     target: "es2020",
     minify: "terser",

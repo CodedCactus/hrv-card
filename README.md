@@ -106,7 +106,7 @@ Each sensor in the `sensors` array supports:
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
+- Node.js 20 or higher (Vite 8 requires ≥ 20.19)
 - npm or yarn
 
 ### Setup

@@ -199,7 +199,6 @@ class HRVCard extends LitElement {
   private _particles: Particle[] = [];
   private _animationFrame?: number;
   private _lastFrameTime = 0;
-  private _pathLengths: [number, number] = [0, 0];
 
   /**
    * All tracked entity IDs. Hass updates that change none of these (nor any
@@ -446,13 +445,16 @@ class HRVCard extends LitElement {
     const path2 = svgClone.querySelector<SVGPathElement>("#path11");
     if (path1 && path2) {
       this._flowPaths = [path1, path2];
-      this._pathLengths = [path1.getTotalLength(), path2.getTotalLength()];
+      const pathLengths: [number, number] = [
+        path1.getTotalLength(),
+        path2.getTotalLength(),
+      ];
 
       // Precompute path points for fast interpolation.
       const SAMPLE_COUNT = 100;
       for (let i = 0; i < 2; i++) {
         const path = this._flowPaths[i];
-        const length = this._pathLengths[i];
+        const length = pathLengths[i];
         const points: { x: number; y: number; tx: number; ty: number }[] = [];
         for (let j = 0; j <= SAMPLE_COUNT; j++) {
           const progress = j / SAMPLE_COUNT;
@@ -989,10 +991,6 @@ class HRVCard extends LitElement {
     .wrap {
       position: relative;
       width: 100%;
-    }
-
-    .svg-container {
-      z-index: 3;
     }
 
     .svg-container svg {

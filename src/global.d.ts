@@ -9,4 +9,7 @@ declare global {
       preview?: boolean;
     }>;
   }
+
+  /** Injected at build time by Vite from package.json (see vite.config.ts). */
+  const __APP_VERSION__: string;
 }

@@ -52,10 +52,6 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
 
-      - name: Inject version
-        run: |
-          echo "export const VERSION = '${{ steps.version.outputs.version }}';" > src/version.ts
-
       - name: Type check
         run: npm run typecheck
 
@@ -64,6 +60,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Validate output
         run: test -f dist/hrv-card.js
