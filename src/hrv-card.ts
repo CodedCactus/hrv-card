@@ -41,6 +41,21 @@ interface SensorDisplayInfo {
   isHeat: boolean;
 }
 
+/** The four flow temperatures read from hass. */
+interface FlowTemps {
+  outdoor: number;
+  supply: number;
+  extract: number;
+  exhaust: number;
+}
+
+/** Gradient stop temperatures plus a shared 0–1 normaliser. */
+interface FlowGradient {
+  path1Temps: [number, number, number, number];
+  path2Temps: [number, number, number, number];
+  normalise: (t: number) => number;
+}
+
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
@@ -332,14 +347,7 @@ class HRVCard extends LitElement {
     // The shadow DOM (SVG, paths, stops) survives a disconnect, but
     // disconnectedCallback tears the canvas down; rebuild it when re-attached.
     this._ensureCanvas();
-    if (
-      this._hass &&
-      this._flowPaths &&
-      this._canvas &&
-      this.config?.animation !== false
-    ) {
-      this.startParticleAnimation();
-    }
+    this._syncAnimationState();
   }
 
   /**
@@ -416,13 +424,16 @@ class HRVCard extends LitElement {
       // Create canvas inside SVG (as sibling to paths) for perfect alignment.
       this._ensureCanvas();
 
-      // Mask path from SVG (defines crossing region where path 1 goes under path 2).
-      const maskPathData = `m 1273.9551,128.39258 c -32.0637,0.58284 -64.2021,4.24638 -95.177,12.74756 -27.6382,7.50585 -54.2017,18.53026 -79.8197,31.25211 -3.304,1.61358 -6.583,3.1479 -9.8971,4.64693 -9.4165,4.22773 -18.8683,8.37419 -28.2909,12.58876 -173.97544,77.35812 -347.94584,154.7278 -521.92448,232.07869 -14.0354,6.10129 -28.11932,12.11071 -42.47092,17.43595 -2.33738,0.86672 -4.90909,1.79684 -7.25,2.62304 -12.65767,4.43483 -25.45548,8.30162 -38.63813,11.06951 -1.20711,0.23826 -2.51848,0.51874 -3.7589,0.75152 -3.92058,0.76101 -7.86027,1.42066 -11.81,2.01101 -1.15512,0.15932 -2.40872,0.35404 -3.57538,0.50199 -10.0584,1.34122 -20.21971,2.07689 -30.39554,2.4725 -16.58735,0.63549 -33.28867,0.38907 -49.92752,0.39986 -104.49023,-0.1153 -208.98047,-0.23191 -313.470702,-0.34701 -0.04109,38 -0.08391,76 -0.125,114 115.416492,0.12179 230.833112,0.24509 346.249572,0.32646 33.67553,-0.39328 67.41881,-3.8015 100.17893,-11.78258 37.57577,-9.01861 73.71283,-23.09878 108.98499,-38.71061 34.56098,-15.29015 69.06914,-30.70181 103.60763,-46.04392 148.81735,-66.1912 297.63855,-132.37436 446.45345,-198.5706 8.8478,-4.44955 17.7053,-8.88423 26.7012,-13.0293 14.7424,-6.76223 30.0891,-12.8361 46.0066,-16.45024 4.5508,-1.05413 9.1445,-1.91596 13.7571,-2.65132 1.3173,-0.18921 2.8678,-0.44145 4.281,-0.62112 11.9581,-1.65321 24.0653,-2.27661 36.0838,-2.57239 15.8342,-0.35647 31.6733,-0.12099 47.5098,-0.16931 94.9851,0.0316 189.9703,0.0688 284.9555,0.10501 0.011,-38 0.028,-76 0.039,-114 -109.1867,-0.0375 -218.3735,-0.0809 -327.5601,-0.075 -0.2391,0.004 -0.4781,0.008 -0.7172,0.0125`;
-      this._maskPath = new Path2D(maskPathData);
+      // The crossing region is the black cutout path inside <mask id="curveMask">
+      // (path 1 goes under path 2 there). Parse its `d` from the SVG so the two
+      // definitions cannot drift apart; if it is missing, particles are simply
+      // not clipped rather than the card failing.
+      const maskPathData = svgClone
+        .querySelector<SVGPathElement>('#curveMask path[fill="#000000"]')
+        ?.getAttribute("d");
+      if (maskPathData) this._maskPath = new Path2D(maskPathData);
 
-      if (this.config?.animation !== false) {
-        this.startParticleAnimation();
-      }
+      this._syncAnimationState();
     }
 
     // Apply initial gradient colours if hass data is already available.
@@ -435,21 +446,26 @@ class HRVCard extends LitElement {
 
     if (changedProps.has("_hass")) {
       this.updateSvgGradients();
-      // Start/stop particle animation based on data availability and config.
-      const animationEnabled = this.config?.animation !== false;
-      if (
-        animationEnabled &&
-        this._hass &&
-        this._flowPaths &&
-        this._canvas &&
-        !this._animationFrame
-      ) {
-        this.startParticleAnimation();
-      } else if (!animationEnabled || !this._hass) {
-        if (this._animationFrame) {
-          this.stopParticleAnimation();
-        }
-      }
+    }
+    // React to data *and* config changes, so toggling `animation` in the card
+    // editor takes effect immediately without waiting for a state update.
+    if (changedProps.has("_hass") || changedProps.has("config")) {
+      this._syncAnimationState();
+    }
+  }
+
+  /** Start or stop the flow animation to match the current config and data. */
+  private _syncAnimationState(): void {
+    const canAnimate =
+      this.config?.animation !== false &&
+      !!this._hass &&
+      !!this._flowPaths &&
+      !!this._canvas;
+
+    if (canAnimate && !this._animationFrame) {
+      this.startParticleAnimation();
+    } else if (!canAnimate && this._animationFrame) {
+      this.stopParticleAnimation();
     }
   }
 
@@ -502,14 +518,10 @@ class HRVCard extends LitElement {
   };
 
   private updateParticles(dt: number): void {
-    if (!this._flowPaths || !this._gradientStops || !this.config) return;
+    if (!this._flowPaths) return;
 
-    const outdoor = this.getNumericState(this.config.outdoor_temp);
-    const supply  = this.getNumericState(this.config.supply_temp);
-    const extract = this.getNumericState(this.config.extract_temp);
-    const exhaust = this.getNumericState(this.config.exhaust_temp);
-
-    if (outdoor === null || supply === null || extract === null || exhaust === null) {
+    // No temperatures => nothing to visualize; clear the field.
+    if (!this.readFlowTemps()) {
       this._particles = [];
       return;
     }
@@ -624,9 +636,9 @@ class HRVCard extends LitElement {
       const finalX = x + offsetX;
       const finalY = y + offsetY;
 
-      // Use mask path for precise clipping: path 1 (index 0) goes under path 2 in crossing.
-      // The mask path (path9) defines the filled region where crossing occurs.
-      // Do check in viewBox coordinates (without DPR transform).
+      // Use the parsed mask for precise clipping: path 1 (index 0) goes under
+      // path 2 at the crossing. The mask geometry is in viewBox coordinates,
+      // so reset the transform before the hit-test.
       if (pathIndex === 0 && this._maskPath) {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to viewBox coordinates
@@ -660,30 +672,52 @@ class HRVCard extends LitElement {
 
   // ── SVG gradients ──────────────────────────
 
-  private updateSvgGradients(): void {
-    if (!this.config || !this._gradientStops) return;
+  /**
+   * Read the four flow temperatures from hass. Returns null when any is
+   * missing or non-numeric, so callers can distinguish "unavailable" from a
+   * genuine value.
+   */
+  private readFlowTemps(): FlowTemps | null {
+    if (!this.config) return null;
 
     const outdoor = this.getNumericState(this.config.outdoor_temp);
-    const supply  = this.getNumericState(this.config.supply_temp);
+    const supply = this.getNumericState(this.config.supply_temp);
     const extract = this.getNumericState(this.config.extract_temp);
     const exhaust = this.getNumericState(this.config.exhaust_temp);
 
-    // If any temperature is unavailable, leave the gradients in their last
-    // known state rather than collapsing them around a bogus 0.
     if (outdoor === null || supply === null || extract === null || exhaust === null) {
-      return;
+      return null;
     }
+    return { outdoor, supply, extract, exhaust };
+  }
 
-    const path1Temps = buildGradientTemps(outdoor, supply);
+  /**
+   * Derive the per-path gradient stop temperatures and a shared normaliser
+   * (0–1 across the combined min/max of all stops) from flow temperatures.
+   */
+  private buildFlowGradient(temps: FlowTemps): FlowGradient {
+    const path1Temps = buildGradientTemps(temps.outdoor, temps.supply);
     // Path 2 runs right-to-left (extract→exhaust), so args are swapped.
-    const path2Temps = buildGradientTemps(exhaust, extract);
+    const path2Temps = buildGradientTemps(temps.exhaust, temps.extract);
 
     const allTemps = [...path1Temps, ...path2Temps];
-    const minTemp  = Math.min(...allTemps);
-    const maxTemp  = Math.max(...allTemps);
-    const range    = Math.max(maxTemp - minTemp, 0.1);
+    const minTemp = Math.min(...allTemps);
+    const maxTemp = Math.max(...allTemps);
+    const range = Math.max(maxTemp - minTemp, 0.1);
     const normalise = (t: number) => (t - minTemp) / range;
 
+    return { path1Temps, path2Temps, normalise };
+  }
+
+  private updateSvgGradients(): void {
+    if (!this._gradientStops) return;
+
+    const temps = this.readFlowTemps();
+    // If any temperature is unavailable, leave the gradients in their last
+    // known state rather than collapsing them around a bogus 0.
+    if (!temps) return;
+
+    const { path1Temps, path2Temps, normalise } = this.buildFlowGradient(temps);
     applyGradientToStops(this._gradientStops.path1, path1Temps, normalise);
     applyGradientToStops(this._gradientStops.path2, path2Temps, normalise);
   }

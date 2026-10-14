@@ -124,4 +124,24 @@ describe("HRVCard", () => {
     expect(el._animationFrame).toBeDefined();
     el.remove();
   });
+
+  it("applies animation config changes without a hass update", async () => {
+    const el = await createCard();
+    expect(el._animationFrame).toBeDefined();
+
+    el.setConfig({ ...CONFIG, animation: false });
+    await el.updateComplete;
+    expect(el._animationFrame).toBeUndefined();
+
+    el.setConfig({ ...CONFIG, animation: true });
+    await el.updateComplete;
+    expect(el._animationFrame).toBeDefined();
+    el.remove();
+  });
+
+  it("parses the crossing mask path from the SVG", async () => {
+    const el = await createCard();
+    expect(el._maskPath).toBeTruthy();
+    el.remove();
+  });
 });
