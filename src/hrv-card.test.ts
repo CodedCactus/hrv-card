@@ -178,4 +178,22 @@ describe("HRVCard", () => {
     expect(chip?.getAttribute("type")).toBe("button");
     el.remove();
   });
+
+  it("classifies progress against precomputed crossing intervals", async () => {
+    const el = await createCard();
+    el._crossingIntervals = [
+      [0.4, 0.6],
+      [0.8, 0.85],
+    ];
+
+    expect(el._isInCrossing(0.2)).toBe(false);
+    expect(el._isInCrossing(0.39)).toBe(false);
+    expect(el._isInCrossing(0.4)).toBe(true);
+    expect(el._isInCrossing(0.5)).toBe(true);
+    expect(el._isInCrossing(0.6)).toBe(true);
+    expect(el._isInCrossing(0.61)).toBe(false);
+    expect(el._isInCrossing(0.8)).toBe(true);
+    expect(el._isInCrossing(0.86)).toBe(false);
+    el.remove();
+  });
 });

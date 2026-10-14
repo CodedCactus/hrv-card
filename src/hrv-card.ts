@@ -175,6 +175,21 @@ class HRVCard extends LitElement {
   /** Mask path for canvas clipping (from SVG mask - crossing region). */
   private _maskPath?: Path2D;
 
+  /**
+   * Path-1 progress intervals that lie inside the crossing mask, precomputed
+   * once so per-frame hit tests are interval lookups instead of one
+   * `isPointInPath` call per rendered point.
+   */
+  private _crossingIntervals: [number, number][] = [];
+
+  /** Displayed host width in CSS px (tracked via ResizeObserver). */
+  private _displayWidth = 0;
+
+  /** Device-pixel scale currently applied to the canvas context. */
+  private _canvasScale = 0;
+
+  private _resizeObserver?: ResizeObserver;
+
   /** Particle animation state. */
   private _particles: Particle[] = [];
   private _animationFrame?: number;
@@ -395,6 +410,19 @@ class HRVCard extends LitElement {
     this._svg.appendChild(wrapper);
     this._canvas = htmlCanvas;
     this._canvasCtx = htmlCanvas.getContext("2d")!;
+
+    // Track the displayed card width so the canvas backing store can be sized
+    // to actual device pixels instead of the full viewBox resolution. The host
+    // is observed (not the canvas) because elements inside a foreignObject
+    // report untransformed user-unit sizes.
+    this._resizeObserver?.disconnect();
+    if (typeof ResizeObserver !== "undefined") {
+      this._resizeObserver = new ResizeObserver((entries) => {
+        const last = entries[entries.length - 1];
+        this._displayWidth = last.contentRect.width;
+      });
+      this._resizeObserver.observe(this);
+    }
   }
 
   protected firstUpdated(): void {
@@ -447,6 +475,8 @@ class HRVCard extends LitElement {
         ?.getAttribute("d");
       if (maskPathData) this._maskPath = new Path2D(maskPathData);
 
+      this._computeCrossingIntervals();
+
       this._syncAnimationState();
     }
 
@@ -486,6 +516,8 @@ class HRVCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.stopParticleAnimation();
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = undefined;
     // Remove the whole <foreignObject> wrapper; the rest of the shadow DOM
     // (SVG, paths, gradient stops) is preserved and reused on reconnect.
     this._svg?.querySelector("foreignObject")?.remove();
@@ -586,27 +618,97 @@ class HRVCard extends LitElement {
     this._particles = this._particles.filter((p) => p.progress < 1);
   }
 
+  /**
+   * Precompute the path-1 progress intervals that lie inside the crossing
+   * mask, so per-frame hit tests become interval lookups instead of an
+   * expensive `isPointInPath` call per rendered point. Sample boundaries are
+   * refined by bisection to well below a particle radius.
+   */
+  private _computeCrossingIntervals(): void {
+    this._crossingIntervals = [];
+    const ctx = this._canvasCtx;
+    const path = this._flowPaths?.[0];
+    const sampled = this._pathPoints[0];
+    const mask = this._maskPath;
+    if (!ctx || !path || !sampled || !mask || sampled.points.length < 2 || sampled.length <= 0) {
+      return;
+    }
+
+    const { points, length } = sampled;
+    const step = 1 / (points.length - 1);
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    const inside = points.map((pt) => ctx.isPointInPath(mask, pt.x, pt.y));
+
+    // Bisect between an outside and an inside sample to locate the boundary.
+    const boundary = (outsideProgress: number, insideProgress: number): number => {
+      let lo = outsideProgress;
+      let hi = insideProgress;
+      for (let i = 0; i < 8; i++) {
+        const mid = (lo + hi) / 2;
+        const pt = path.getPointAtLength(mid * length);
+        if (ctx.isPointInPath(mask, pt.x, pt.y)) hi = mid;
+        else lo = mid;
+      }
+      return (lo + hi) / 2;
+    };
+
+    for (let i = 0; i < inside.length; i++) {
+      if (!inside[i]) continue;
+      let end = i;
+      while (end + 1 < inside.length && inside[end + 1]) end++;
+
+      const startProgress = i === 0 ? 0 : boundary((i - 1) * step, i * step);
+      const endProgress =
+        end === inside.length - 1 ? 1 : boundary((end + 1) * step, end * step);
+      this._crossingIntervals.push([startProgress, endProgress]);
+
+      i = end;
+    }
+
+    ctx.restore();
+  }
+
+  /** True when a path-1 progress position lies inside the crossing mask. */
+  private _isInCrossing(progress: number): boolean {
+    for (const [start, end] of this._crossingIntervals) {
+      if (progress < start) return false;
+      if (progress <= end) return true;
+    }
+    return false;
+  }
+
   private renderParticles(): void {
     if (!this._canvas || !this._canvasCtx || !this._pathPoints.length) return;
 
     const ctx = this._canvasCtx;
     const dpr = window.devicePixelRatio || 1;
 
-    // Canvas is inside SVG foreignObject with viewBox coordinates.
-    // Use SVG viewBox dimensions directly.
-    const VIEWBOX_WIDTH = 1629;
-    const VIEWBOX_HEIGHT = 640;
+    // Canvas is inside SVG foreignObject; draw in viewBox coordinates.
+    const viewBox = this._svg?.viewBox.baseVal;
+    const VIEWBOX_WIDTH = viewBox?.width || 1629;
+    const VIEWBOX_HEIGHT = viewBox?.height || 640;
 
-    const width = VIEWBOX_WIDTH * dpr;
-    const height = VIEWBOX_HEIGHT * dpr;
+    // Size the backing store to the displayed card size in device pixels
+    // rather than the full viewBox at device resolution — an order-of-magnitude
+    // memory and fill-rate saving on typical dashboards. Capped at one device
+    // pixel per viewBox unit, i.e. the old behaviour, so oversized viewports
+    // don't render detail the artwork doesn't have.
+    const scale = Math.min(((this._displayWidth || VIEWBOX_WIDTH) * dpr) / VIEWBOX_WIDTH, dpr);
+    const width = Math.round(VIEWBOX_WIDTH * scale);
+    const height = Math.round(VIEWBOX_HEIGHT * scale);
 
-    // Resize canvas if needed.
-    if (this._canvas.width !== width || this._canvas.height !== height) {
+    if (
+      this._canvas.width !== width ||
+      this._canvas.height !== height ||
+      this._canvasScale !== scale
+    ) {
       this._canvas.width = width;
       this._canvas.height = height;
-      this._canvas.style.width = `${VIEWBOX_WIDTH}px`;
-      this._canvas.style.height = `${VIEWBOX_HEIGHT}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this._canvasScale = scale;
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
     }
 
     // Clear first (in viewBox coordinates) so a particle field that just
@@ -639,6 +741,10 @@ class HRVCard extends LitElement {
     const FADE_OUT_START = 0.85;
 
     const renderParticle = (progress: number, offset: number, size: number, baseOpacity: number, pathIndex: number) => {
+      // Path 1 (index 0) goes under path 2 at the crossing: points whose
+      // progress lies in the precomputed masked intervals are skipped.
+      if (pathIndex === 0 && this._isInCrossing(progress)) return;
+
       const { x, y, tx, ty } = getPathData(pathIndex, progress);
 
       // Perpendicular vector: (-ty, tx) rotated 90° CCW from tangent.
@@ -659,19 +765,6 @@ class HRVCard extends LitElement {
 
       const finalX = x + offsetX;
       const finalY = y + offsetY;
-
-      // Use the parsed mask for precise clipping: path 1 (index 0) goes under
-      // path 2 at the crossing. The mask geometry is in viewBox coordinates,
-      // so reset the transform before the hit-test.
-      if (pathIndex === 0 && this._maskPath) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to viewBox coordinates
-        if (ctx.isPointInPath(this._maskPath, finalX, finalY)) {
-          ctx.restore();
-          return; // particle in crossing region, skip it (goes under)
-        }
-        ctx.restore();
-      }
 
       ctx.beginPath();
       ctx.arc(finalX, finalY, size, 0, Math.PI * 2);
