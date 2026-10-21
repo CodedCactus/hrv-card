@@ -65,6 +65,27 @@ const createCard = async (config: unknown = CONFIG): Promise<any> => {
 };
 
 describe("HRVCard", () => {
+  it("reports sizing for masonry and Sections layouts", () => {
+    const el = document.createElement("probe-hrv-card") as any;
+
+    expect(el.getCardSize()).toBe(2);
+    expect(el.getGridOptions()).toEqual({
+      columns: 12,
+      rows: "auto",
+      min_columns: 6,
+      max_columns: 12,
+    });
+    expect(el.getLayoutOptions()).toEqual({
+      grid_columns: 12,
+      grid_rows: "auto",
+      grid_min_columns: 6,
+      grid_max_columns: 12,
+    });
+
+    el.setConfig({ ...CONFIG, sensors: [{ entity: "sensor.flow" }] });
+    expect(el.getCardSize()).toBe(3);
+  });
+
   it("updates SVG gradients when a tracked temperature changes", async () => {
     const el = await createCard();
     const before = stopColor(el, "gradientPath1", 1);

@@ -347,10 +347,43 @@ class HRVCard extends LitElement {
     ];
   }
 
-  /** Approximate rendered row count; used by HA's card-size layout system. */
+  /** Approximate rendered row count; used by HA's masonry card-size system. */
   getCardSize(): number {
     // Header (1) + SVG/overlay block (1) + sensor row (1 when configured).
     return 2 + (this.config?.sensors?.length ? 1 : 0);
+  }
+
+  /** Default size and resize limits for HA's Sections view grid. */
+  getGridOptions(): {
+    columns: number;
+    rows: "auto";
+    min_columns: number;
+    max_columns: number;
+  } {
+    return {
+      columns: 12,
+      rows: "auto",
+      min_columns: 6,
+      max_columns: 12,
+    };
+  }
+
+  /**
+   * Legacy layout hook for older HA versions; mirrors getGridOptions().
+   * @deprecated Use getGridOptions() where supported.
+   */
+  getLayoutOptions(): {
+    grid_columns: number;
+    grid_rows: "auto";
+    grid_min_columns: number;
+    grid_max_columns: number;
+  } {
+    return {
+      grid_columns: 12,
+      grid_rows: "auto",
+      grid_min_columns: 6,
+      grid_max_columns: 12,
+    };
   }
 
   // ── state helpers ──────────────────────────
