@@ -389,13 +389,22 @@ class HRVCard extends LitElement {
   // ── state helpers ──────────────────────────
 
   /**
+   * Read an entity's state, treating missing, empty, and whitespace-only
+   * states as unavailable.
+   */
+  private getEntityState(entity: string): string | undefined {
+    const state = this._hass?.states?.[entity]?.state;
+    return typeof state === "string" && state.trim() !== "" ? state : undefined;
+  }
+
+  /**
    * Read an entity's state as a number.
    * Returns `null` when the entity is missing or its state is not numeric,
    * so callers can distinguish "unavailable" from a genuine `0`.
    */
   private getNumericState(entity: string): number | null {
-    const raw = this._hass?.states?.[entity]?.state;
-    if (raw === undefined || raw === null) return null;
+    const raw = this.getEntityState(entity);
+    if (raw === undefined) return null;
     const num = Number(raw);
     return Number.isFinite(num) ? num : null;
   }
@@ -407,7 +416,7 @@ class HRVCard extends LitElement {
   // ── sensor display ─────────────────────────
 
   private getSensorDisplayInfo(sensor: SensorConfig): SensorDisplayInfo {
-    const state = this._hass?.states?.[sensor.entity]?.state ?? "—";
+    const state = this.getEntityState(sensor.entity) ?? "—";
     const unit =
       sensor.unit ??
       this.getEntityAttribute<string>(sensor.entity, "unit_of_measurement") ??

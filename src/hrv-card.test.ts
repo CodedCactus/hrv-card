@@ -333,6 +333,33 @@ describe("HRVCard", () => {
     el.remove();
   });
 
+  it("treats empty states as unavailable but keeps genuine zero", async () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    document.body.appendChild(el);
+    el.setConfig({ ...CONFIG, sensors: [{ entity: "sensor.flow" }] });
+
+    const empty = makeHass({ out: 5, sup: 30, ext: 22, exh: 10 });
+    empty.states["sensor.out"].state = "";
+    empty.states["sensor.sup"].state = "   ";
+    empty.states["sensor.flow"] = { state: "", attributes: {} };
+    el.hass = empty;
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelector(".outdoor .temp-value")?.textContent).toBe("—");
+    expect(el.shadowRoot.querySelector(".supply .temp-value")?.textContent).toBe("—");
+    expect(el.shadowRoot.querySelector(".sensor-value")?.textContent?.trim()).toBe("—");
+    expect(el.readFlowTemps()).toBeNull();
+
+    const zero = makeHass({ out: 0, sup: 0, ext: 0, exh: 0 });
+    zero.states["sensor.flow"] = { state: "0", attributes: {} };
+    el.hass = zero;
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelector(".outdoor .temp-value")?.textContent).toBe("0.0");
+    expect(el.shadowRoot.querySelector(".sensor-value")?.textContent?.trim()).toBe("0.0");
+    el.remove();
+  });
+
   it("renders labels and chips as accessible buttons", async () => {
     const el = document.createElement("probe-hrv-card") as any;
     document.body.appendChild(el);
