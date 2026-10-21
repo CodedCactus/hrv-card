@@ -64,6 +64,21 @@ const createCard = async (config: unknown = CONFIG): Promise<any> => {
   return el;
 };
 
+const makeParticle = (): any => ({
+  progress: 0.5,
+  speed: 0,
+  size: 4,
+  pathIndex: 0,
+  offset: 0,
+  trail: Array.from({ length: 24 }, () => ({
+    progress: 0,
+    offset: 0,
+    time: 0,
+  })),
+  trailHead: 0,
+  trailCount: 0,
+});
+
 describe("HRVCard", () => {
   it("reports sizing for masonry and Sections layouts", () => {
     const el = document.createElement("probe-hrv-card") as any;
@@ -136,14 +151,7 @@ describe("HRVCard", () => {
     expect(el._canvas).toBeTruthy();
     expect(el._canvas.parentNode.tagName).toBe("foreignObject");
 
-    const particle = {
-      progress: 0.5,
-      speed: 0,
-      size: 4,
-      pathIndex: 0 as const,
-      offset: 0,
-      trail: [],
-    };
+    const particle = makeParticle();
     el._particles = [particle];
 
     el.remove();
@@ -236,14 +244,7 @@ describe("HRVCard", () => {
       const el = await createCard();
       expect(el._animationFrame).toBeDefined();
 
-      const particle = {
-        progress: 0.5,
-        speed: 0,
-        size: 4,
-        pathIndex: 0 as const,
-        offset: 0,
-        trail: [],
-      };
+      const particle = makeParticle();
       el._particles = [particle];
 
       observerCallback?.(

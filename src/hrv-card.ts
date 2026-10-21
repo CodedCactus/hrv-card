@@ -93,6 +93,16 @@ const MASK_RASTER_SCALE = 1;
 const DEFAULT_VIEWBOX_WIDTH = 1629;
 const DEFAULT_VIEWBOX_HEIGHT = 640;
 
+/** Particle motion, trail, and fade tuning. */
+const PARTICLES_PER_SECOND_PER_PATH = 12;
+const PARTICLE_SPEED = 0.2; // progress per second
+const MAX_PARTICLE_OFFSET = 0.8;
+const TRAIL_DURATION_MS = 120;
+const MAX_TRAIL_POINTS = 24;
+const FADE_IN_END = 0.15;
+const FADE_OUT_START = 0.85;
+const FULL_CIRCLE = Math.PI * 2;
+
 // ─────────────────────────────────────────────
 // Module-level SVG cache
 // ─────────────────────────────────────────────
@@ -120,11 +130,13 @@ interface GradientStops {
 /** Particle flowing along a path. */
 interface Particle {
   progress: number;      // 0–1 along path
-  speed: number;         // progress per frame
+  speed: number;         // progress per second
   size: number;          // particle radius
   pathIndex: 0 | 1;      // which path (0=path1, 1=path2)
   offset: number;        // perpendicular offset from path center (-1 to 1)
-  trail: TrailPoint[];   // fading trail positions
+  trail: TrailPoint[];   // preallocated ring buffer of trail positions
+  trailHead: number;     // index of the newest trail point
+  trailCount: number;    // number of valid points in the ring buffer
 }
 
 /** A single point in the particle's trail. */
@@ -132,6 +144,28 @@ interface TrailPoint {
   progress: number;  // progress along path
   offset: number;    // perpendicular offset
   time: number;      // performance.now() when the point was recorded
+}
+
+function createParticle(
+  size: number,
+  pathIndex: 0 | 1,
+  offset: number
+): Particle {
+  const trail: TrailPoint[] = new Array(MAX_TRAIL_POINTS);
+  for (let i = 0; i < MAX_TRAIL_POINTS; i++) {
+    trail[i] = { progress: 0, offset: 0, time: 0 };
+  }
+
+  return {
+    progress: 0,
+    speed: PARTICLE_SPEED,
+    size,
+    pathIndex,
+    offset,
+    trail,
+    trailHead: 0,
+    trailCount: 0,
+  };
 }
 
 /** Precomputed point on a flow path plus its unit tangent. */
@@ -226,6 +260,9 @@ class HRVCard extends LitElement {
   private _particles: Particle[] = [];
   private _animationFrame?: number;
   private _lastFrameTime = 0;
+
+  /** Cached so the animation loop does not re-read four entities per frame. */
+  private _hasFlowTemps = false;
 
   /** Accessibility and viewport gating for the animation loop. */
   private _prefersReducedMotion = false;
@@ -726,7 +763,7 @@ class HRVCard extends LitElement {
   /** Cancel the frame loop and discard all particle state. */
   private stopParticleAnimation(): void {
     this.pauseParticleAnimation();
-    this._particles = [];
+    this._particles.length = 0;
     this._clearCanvas();
   }
 
@@ -757,53 +794,60 @@ class HRVCard extends LitElement {
     if (!this._flowPaths) return;
 
     // No temperatures => nothing to visualize; clear the field.
-    if (!this.readFlowTemps()) {
-      this._particles = [];
+    if (!this._hasFlowTemps) {
+      this._particles.length = 0;
       return;
     }
 
-    // Spawn new particles periodically (~12 per second per path).
-    const spawnChance = 0.20 * dt * 60;
-    const PARTICLE_SPEED = 0.2; // progress per second (constant for all particles)
-    const MAX_OFFSET = 0.8; // keep particles away from stroke edges (0.7 = 70% of half-width)
+    // Spawn new particles periodically, biased towards the stroke centre.
+    const spawnChance = PARTICLES_PER_SECOND_PER_PATH * dt;
     for (let pathIndex = 0; pathIndex < 2; pathIndex++) {
       if (Math.random() < spawnChance) {
         const size = 3 + Math.random() * 2;
-        // Spawn biased towards center of stroke, clamped away from edges.
-        const rawOffset = Math.random() * 2 - 1; // -1 to 1
-        const biasedOffset = Math.sign(rawOffset) * Math.pow(Math.abs(rawOffset), 1.5); // bias toward 0
-        const offset = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, biasedOffset)); // clamp
-        this._particles.push({
-          progress: 0,
-          speed: PARTICLE_SPEED,
-          size,
-          pathIndex: pathIndex as 0 | 1,
-          offset,
-          trail: [],
-        });
+        const rawOffset = Math.random() * 2 - 1;
+        const biasedOffset =
+          Math.sign(rawOffset) * Math.pow(Math.abs(rawOffset), 1.5);
+        const offset = Math.max(
+          -MAX_PARTICLE_OFFSET,
+          Math.min(MAX_PARTICLE_OFFSET, biasedOffset)
+        );
+        this._particles.push(createParticle(size, pathIndex as 0 | 1, offset));
       }
     }
 
-    // Update existing particles.
-    // Trail length is pruned by elapsed time (not frame count) so it looks the
-    // same at 30, 60 or 144 Hz; the hard cap only bounds very high refresh
-    // rates and a long hidden-tab gap.
-    const TRAIL_DURATION_MS = 120;
-    const MAX_TRAIL_POINTS = 24;
+    // Update particles in place. Trail points live in a preallocated ring
+    // buffer, and expired particles are compacted instead of filtered into a
+    // new array.
     const trailCutoff = now - TRAIL_DURATION_MS;
-    for (const p of this._particles) {
-      // Add current position to trail before updating progress.
-      p.trail.unshift({ progress: p.progress, offset: p.offset, time: now });
-      while (p.trail.length > 1 && p.trail[p.trail.length - 1].time < trailCutoff) {
-        p.trail.pop();
+    let writeIndex = 0;
+    for (let i = 0; i < this._particles.length; i++) {
+      const particle = this._particles[i];
+
+      particle.trailHead = (particle.trailHead + 1) % MAX_TRAIL_POINTS;
+      const point = particle.trail[particle.trailHead];
+      point.progress = particle.progress;
+      point.offset = particle.offset;
+      point.time = now;
+
+      if (particle.trailCount < MAX_TRAIL_POINTS) particle.trailCount++;
+
+      let oldest =
+        (particle.trailHead - particle.trailCount + 1 + MAX_TRAIL_POINTS) %
+        MAX_TRAIL_POINTS;
+      while (
+        particle.trailCount > 1 &&
+        particle.trail[oldest].time < trailCutoff
+      ) {
+        particle.trailCount--;
+        oldest = (oldest + 1) % MAX_TRAIL_POINTS;
       }
-      if (p.trail.length > MAX_TRAIL_POINTS) p.trail.length = MAX_TRAIL_POINTS;
 
-      p.progress += p.speed * dt;
+      particle.progress += particle.speed * dt;
+      if (particle.progress < 1) {
+        this._particles[writeIndex++] = particle;
+      }
     }
-
-    // Remove particles that reached the end.
-    this._particles = this._particles.filter((p) => p.progress < 1);
+    this._particles.length = writeIndex;
   }
 
   /**
@@ -914,74 +958,93 @@ class HRVCard extends LitElement {
 
     if (!this._particles.length) return;
 
-    /** Get interpolated point and tangent from precomputed path data. */
-    const getPathData = (pathIndex: number, progress: number) => {
-      const points = this._pathPoints[pathIndex];
-      const idx = progress * PATH_SAMPLE_COUNT;
-      const i = Math.floor(idx);
-      const f = idx - i;
-      const a = points[Math.min(i, PATH_SAMPLE_COUNT)];
-      const b = points[Math.min(i + 1, PATH_SAMPLE_COUNT)];
-      return {
-        x: a.x + (b.x - a.x) * f,
-        y: a.y + (b.y - a.y) * f,
-        tx: a.tx + (b.tx - a.tx) * f,
-        ty: a.ty + (b.ty - a.ty) * f,
-      };
-    };
+    // Set the colour once per frame; per-point opacity is applied through
+    // globalAlpha so the loop does not build an rgba() string for every point.
+    ctx.fillStyle = "#fff";
 
-    const FADE_IN_END = 0.15;
-    const FADE_OUT_START = 0.85;
+    const particles = this._particles;
+    for (let i = 0; i < particles.length; i++) {
+      const particle = particles[i];
+      const trailSpan = Math.max(1, particle.trailCount - 1);
+      const oldest =
+        (particle.trailHead - particle.trailCount + 1 + MAX_TRAIL_POINTS) %
+        MAX_TRAIL_POINTS;
 
-    const renderParticle = (progress: number, offset: number, size: number, baseOpacity: number, pathIndex: number) => {
-      const { x, y, tx, ty } = getPathData(pathIndex, progress);
-
-      // Perpendicular vector: (-ty, tx) rotated 90° CCW from tangent.
-      // For consistent spread on both paths, ensure perpendicular points to "left" of flow direction.
-      const px = -ty;
-      const py = tx;
-
-      const offsetX = px * offset * (FLOW_STROKE_WIDTH / 2);
-      const offsetY = py * offset * (FLOW_STROKE_WIDTH / 2);
-
-      let progressOpacity = 1;
-      if (progress < FADE_IN_END) {
-        progressOpacity = progress / FADE_IN_END;
-      } else if (progress > FADE_OUT_START) {
-        progressOpacity = (1 - progress) / (1 - FADE_OUT_START);
-      }
-      const opacity = baseOpacity * progressOpacity;
-
-      const finalX = x + offsetX;
-      const finalY = y + offsetY;
-
-      // Path 1 (index 0) goes under path 2 at the crossing: skip points whose
-      // rendered (offset) position lies in the masked region.
-      if (pathIndex === 0 && this._isInMask(finalX, finalY)) {
-        return;
-      }
-
-      ctx.beginPath();
-      ctx.arc(finalX, finalY, size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
-      ctx.fill();
-    };
-
-    for (const p of this._particles) {
-      // Render trail (oldest first). `trailSpan` is guarded because a particle
-      // has a single trail point on its first frame (length - 1 === 0).
-      const trailSpan = Math.max(1, p.trail.length - 1);
-      for (let i = p.trail.length - 1; i >= 0; i--) {
-        const t = p.trail[i];
-        const trailProgress = 1 - i / trailSpan;
+      // Render oldest first so the trail fades towards its tail.
+      for (let n = 0; n < particle.trailCount; n++) {
+        const point = particle.trail[(oldest + n) % MAX_TRAIL_POINTS];
+        const trailProgress =
+          particle.trailCount === 1 ? 1 : n / trailSpan;
         const opacity = 0.1 * trailProgress;
-        const size = p.size * (0.5 + 0.5 * trailProgress);
-        renderParticle(t.progress, t.offset, size, opacity, p.pathIndex);
+        const size = particle.size * (0.5 + 0.5 * trailProgress);
+        this._renderParticle(
+          ctx,
+          point.progress,
+          point.offset,
+          size,
+          opacity,
+          particle.pathIndex
+        );
       }
 
       // Render main particle (head).
-      renderParticle(p.progress, p.offset, p.size, 0.4, p.pathIndex);
+      this._renderParticle(
+        ctx,
+        particle.progress,
+        particle.offset,
+        particle.size,
+        0.4,
+        particle.pathIndex
+      );
     }
+
+    ctx.globalAlpha = 1;
+  }
+
+  /** Draw one particle at its interpolated path position and offset. */
+  private _renderParticle(
+    ctx: CanvasRenderingContext2D,
+    progress: number,
+    offset: number,
+    size: number,
+    baseOpacity: number,
+    pathIndex: number
+  ): void {
+    const points = this._pathPoints[pathIndex];
+    if (!points) return;
+
+    const idx = progress * PATH_SAMPLE_COUNT;
+    const i = Math.floor(idx);
+    const f = idx - i;
+    const a = points[Math.min(i, PATH_SAMPLE_COUNT)];
+    const b = points[Math.min(i + 1, PATH_SAMPLE_COUNT)];
+
+    const x = a.x + (b.x - a.x) * f;
+    const y = a.y + (b.y - a.y) * f;
+    const tx = a.tx + (b.tx - a.tx) * f;
+    const ty = a.ty + (b.ty - a.ty) * f;
+
+    // Perpendicular to the tangent; offset spreads particles across the stroke.
+    const offsetX = -ty * offset * (FLOW_STROKE_WIDTH / 2);
+    const offsetY = tx * offset * (FLOW_STROKE_WIDTH / 2);
+    const finalX = x + offsetX;
+    const finalY = y + offsetY;
+
+    // Path 1 goes under path 2 at the crossing: skip points whose rendered
+    // (offset) position lies in the masked region.
+    if (pathIndex === 0 && this._isInMask(finalX, finalY)) return;
+
+    let progressOpacity = 1;
+    if (progress < FADE_IN_END) {
+      progressOpacity = progress / FADE_IN_END;
+    } else if (progress > FADE_OUT_START) {
+      progressOpacity = (1 - progress) / (1 - FADE_OUT_START);
+    }
+
+    ctx.globalAlpha = baseOpacity * progressOpacity;
+    ctx.beginPath();
+    ctx.arc(finalX, finalY, size, 0, FULL_CIRCLE);
+    ctx.fill();
   }
 
   // ── SVG gradients ──────────────────────────
@@ -1024,12 +1087,12 @@ class HRVCard extends LitElement {
   }
 
   private updateSvgGradients(): void {
-    if (!this._gradientStops) return;
-
     const temps = this.readFlowTemps();
+    this._hasFlowTemps = temps !== null;
+
     // If any temperature is unavailable, leave the gradients in their last
     // known state rather than collapsing them around a bogus 0.
-    if (!temps) return;
+    if (!this._gradientStops || !temps) return;
 
     const { path1Temps, path2Temps, normalise } = this.buildFlowGradient(temps);
     applyGradientToStops(this._gradientStops.path1, path1Temps, normalise);

@@ -11,6 +11,7 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 * 🎨 **Dynamic color gradients** - Cold-to-warm flow mapping with smooth color transitions
 * 🏠 **Native Home Assistant integration** - Seamless card integration with HA themes
 * 📱 **Responsive SVG-based visualization** - Scales beautifully on all devices
+* 📐 **Dashboard-aware sizing** - Uses Home Assistant's masonry and Sections layout APIs
 * ⚡ **Lightweight and fast** - Built with Lit for optimal performance
 * ♿ **Accessibility-aware** - Animation respects reduced-motion settings and pauses when offscreen or hidden
 * 🔧 **Customizable sensor display** - Show additional sensors with status indicators
