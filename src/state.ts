@@ -91,7 +91,10 @@ export function getSensorDisplayInfo(
     display = state;
   } else {
     const num = Number(state);
-    const decimals = sensor.format === "number" ? (sensor.decimals ?? 1) : 1;
+    const rawDecimals = sensor.decimals ?? 1;
+    const decimals = Number.isFinite(rawDecimals)
+      ? Math.min(20, Math.max(0, Math.trunc(rawDecimals)))
+      : 1;
     display = Number.isFinite(num) ? num.toFixed(decimals) : state;
   }
 

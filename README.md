@@ -12,6 +12,7 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 * 🏠 **Native Home Assistant integration** - Seamless card integration with HA themes
 * 📱 **Responsive SVG-based visualization** - Scales beautifully on all devices
 * 📐 **Dashboard-aware sizing** - Uses Home Assistant's masonry and Sections layout APIs
+* 🛠️ **Visual card editor** - Configure temperature entities, animation, and extra sensors without YAML
 * ⚡ **Lightweight and fast** - Built with Lit for optimal performance
 * ♿ **Accessibility-aware** - Animation respects reduced-motion settings and pauses when offscreen or hidden
 * 🔧 **Customizable sensor display** - Show additional sensors with status indicators
@@ -101,7 +102,7 @@ Each sensor in the `sensors` array supports:
 | `entity` | Yes | string | Entity ID of the sensor |
 | `label` | No | string | Display label (defaults to entity name) |
 | `format` | No | string | Display format: `"binary"`, `"text"`, or `"number"` (auto-detected) |
-| `decimals` | No | number | Decimal places for `"number"` format (default: 1) |
+| `decimals` | No | number | Decimal places for numeric sensors (default: 1) |
 | `unit` | No | string | Unit to display (auto-detected from entity) |
 
 ## 🔧 Development

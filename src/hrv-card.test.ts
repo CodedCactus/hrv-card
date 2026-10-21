@@ -109,6 +109,92 @@ describe("HRVCard", () => {
     expect(el.getCardSize()).toBe(3);
   });
 
+  it("provides a visual editor and a valid stub configuration", () => {
+    const Card = customElements.get("hrv-card") as any;
+    const editor = Card.getConfigElement();
+
+    expect(editor.tagName.toLowerCase()).toBe("hrv-card-editor");
+
+    const stub = Card.getStubConfig(
+      makeHass({ out: 5, sup: 30, ext: 22, exh: 10 }),
+      [
+        "sensor.outdoor_temp",
+        "sensor.supply_temp",
+        "sensor.extract_temp",
+        "sensor.exhaust_temp",
+      ],
+      []
+    );
+    expect(stub).toEqual({
+      outdoor_temp: "sensor.outdoor_temp",
+      supply_temp: "sensor.supply_temp",
+      extract_temp: "sensor.extract_temp",
+      exhaust_temp: "sensor.exhaust_temp",
+    });
+  });
+
+  it("emits config changes from the visual editor", async () => {
+    const editor = document.createElement("hrv-card-editor") as any;
+    document.body.appendChild(editor);
+    editor.hass = makeHass({ out: 5, sup: 30, ext: 22, exh: 10 });
+    editor.setConfig({ ...CONFIG, title: "Existing", sensors: [] });
+    await editor.updateComplete;
+
+    expect(editor.shadowRoot.querySelectorAll("ha-entity-picker").length).toBe(4);
+
+    let emitted: any;
+    editor.addEventListener("config-changed", (event: any) => {
+      emitted = event.detail.config;
+    });
+
+    const outdoorPicker = editor.shadowRoot.querySelectorAll(
+      "ha-entity-picker"
+    )[0];
+    outdoorPicker.dispatchEvent(
+      new CustomEvent("value-changed", {
+        detail: { value: "sensor.new_outdoor" },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    expect(emitted?.outdoor_temp).toBe("sensor.new_outdoor");
+
+    editor.shadowRoot.querySelector("button.add-sensor").click();
+    await editor.updateComplete;
+    expect(editor.shadowRoot.querySelectorAll(".sensor-card").length).toBe(1);
+
+    const sensorPicker = editor.shadowRoot.querySelector(
+      ".sensor-card ha-entity-picker"
+    );
+    sensorPicker.dispatchEvent(
+      new CustomEvent("value-changed", {
+        detail: { value: "sensor.humidity" },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    expect(emitted?.sensors?.[0]?.entity).toBe("sensor.humidity");
+
+    const sensorCard = editor.shadowRoot.querySelector(".sensor-card");
+    const formatSelect = sensorCard.querySelector(
+      ".select-field select"
+    ) as HTMLSelectElement;
+    formatSelect.value = "number";
+    formatSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await editor.updateComplete;
+
+    const decimalsField = editor.shadowRoot.querySelector(
+      ".decimals-field"
+    ) as HTMLInputElement;
+    expect(decimalsField).toBeTruthy();
+    decimalsField.value = "2";
+    decimalsField.dispatchEvent(
+      new Event("input", { bubbles: true, composed: true })
+    );
+    expect(emitted?.sensors?.[0]?.decimals).toBe(2);
+    editor.remove();
+  });
+
   it("updates SVG gradients when a tracked temperature changes", async () => {
     const el = await createCard();
     const before = stopColor(el, "gradientPath1", 1);
@@ -391,19 +477,21 @@ describe("HRVCard", () => {
       sensors: [
         { entity: "sensor.mode", format: "text" },
         { entity: "sensor.flow", format: "number", decimals: 2 },
+        { entity: "sensor.auto", decimals: 3 },
       ],
     });
 
     const hass = makeHass({ out: 5, sup: 30, ext: 22, exh: 10 });
     hass.states["sensor.mode"] = { state: "42", attributes: {} };
     hass.states["sensor.flow"] = { state: "12.345", attributes: {} };
+    hass.states["sensor.auto"] = { state: "1.23456", attributes: {} };
     el.hass = hass;
     await el.updateComplete;
 
     const values = [...el.shadowRoot.querySelectorAll(".sensor-value")].map(
       (node: Element) => node.textContent?.trim()
     );
-    expect(values).toEqual(["42", "12.35"]);
+    expect(values).toEqual(["42", "12.35", "1.235"]);
     el.remove();
   });
 

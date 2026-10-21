@@ -1,5 +1,6 @@
 import { LitElement, html } from "lit";
 import type { PropertyValues, TemplateResult } from "lit";
+import "./hrv-card-editor";
 import { cloneCardSvg, queryFlowPaths, queryMaskElement } from "./card-svg";
 import { getTrackedEntities, normalizeConfig } from "./config";
 import { queryGradientStops, updateGradients } from "./gradient";
@@ -25,6 +26,40 @@ class HRVCard extends LitElement {
     return {
       _hass: { type: Object, state: true },
       config: { type: Object },
+    };
+  }
+
+  static getConfigElement(): HTMLElement {
+    return document.createElement("hrv-card-editor");
+  }
+
+  static getStubConfig(
+    hass: HomeAssistant,
+    entities: string[],
+    entitiesFallback: string[]
+  ): HRVCardConfig {
+    const candidates = [...entities, ...entitiesFallback];
+    const temperatureEntities = candidates.filter((entity) => {
+      const state = hass?.states?.[entity];
+      return (
+        state?.attributes?.device_class === "temperature" ||
+        /temp/i.test(entity)
+      );
+    });
+    const fallback = [
+      "sensor.outdoor_temperature",
+      "sensor.supply_temperature",
+      "sensor.extract_temperature",
+      "sensor.exhaust_temperature",
+    ];
+    const pick = (index: number): string =>
+      temperatureEntities[index] ?? temperatureEntities[0] ?? fallback[index];
+
+    return {
+      outdoor_temp: pick(0),
+      supply_temp: pick(1),
+      extract_temp: pick(2),
+      exhaust_temp: pick(3),
     };
   }
 
