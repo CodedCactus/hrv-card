@@ -12,6 +12,7 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 * 🏠 **Native Home Assistant integration** - Seamless card integration with HA themes
 * 📱 **Responsive SVG-based visualization** - Scales beautifully on all devices
 * ⚡ **Lightweight and fast** - Built with Lit for optimal performance
+* ♿ **Accessibility-aware** - Animation respects reduced-motion settings and pauses when offscreen or hidden
 * 🔧 **Customizable sensor display** - Show additional sensors with status indicators
 
 ## 📸 Preview
@@ -88,7 +89,7 @@ sensors:
 | `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
 | `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
 | `sensors` | No | array | Array of additional sensors to display |
-| `animation` | No | boolean | Enable flow animation (default: `true`) |
+| `animation` | No | boolean | Enable flow animation (default: `true`; disabled when the OS requests reduced motion) |
 
 ### Sensor Configuration
 

@@ -14,6 +14,11 @@ interface HomeAssistantState {
 
 interface HomeAssistant {
   states: Record<string, HomeAssistantState | undefined>;
+  config?: {
+    unit_system?: {
+      temperature?: string;
+    };
+  };
 }
 
 export interface HRVCardConfig {
@@ -222,6 +227,13 @@ class HRVCard extends LitElement {
   private _animationFrame?: number;
   private _lastFrameTime = 0;
 
+  /** Accessibility and viewport gating for the animation loop. */
+  private _prefersReducedMotion = false;
+  private _isVisible = true;
+  private _isPageVisible = true;
+  private _motionQuery?: MediaQueryList;
+  private _intersectionObserver?: IntersectionObserver;
+
   /**
    * All tracked entity IDs. Hass updates that change none of these (nor any
    * sensor chip's unit/device-class attribute) are filtered out in
@@ -263,6 +275,13 @@ class HRVCard extends LitElement {
     previous: HomeAssistant,
     current: HomeAssistant
   ): boolean {
+    if (
+      previous.config?.unit_system?.temperature !==
+      current.config?.unit_system?.temperature
+    ) {
+      return true;
+    }
+
     return this._trackedEntities.some((entity) => {
       const prevState = previous.states[entity];
       const currState = current.states[entity];
@@ -414,11 +433,59 @@ class HRVCard extends LitElement {
 
   connectedCallback(): void {
     super.connectedCallback();
+
+    this._isPageVisible = !document.hidden;
+    this._setupMotionPreference();
+    this._setupVisibilityObserver();
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+
     // The shadow DOM (SVG, paths, stops) survives a disconnect, but
     // disconnectedCallback tears the canvas down; rebuild it when re-attached.
     this._ensureCanvas();
     this._syncAnimationState();
   }
+
+  private _setupMotionPreference(): void {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    this._motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    this._prefersReducedMotion = this._motionQuery.matches;
+
+    if (typeof this._motionQuery.addEventListener === "function") {
+      this._motionQuery.addEventListener("change", this._onMotionPreferenceChange);
+    } else {
+      // Safari < 14 uses the deprecated listener API.
+      this._motionQuery.addListener(this._onMotionPreferenceChange);
+    }
+  }
+
+  private _setupVisibilityObserver(): void {
+    if (typeof IntersectionObserver === "undefined") {
+      this._isVisible = true;
+      return;
+    }
+
+    this._intersectionObserver?.disconnect();
+    this._intersectionObserver = new IntersectionObserver((entries) => {
+      const last = entries[entries.length - 1];
+      if (!last) return;
+      this._isVisible = last.isIntersecting;
+      this._syncAnimationState();
+    });
+    this._intersectionObserver.observe(this);
+  }
+
+  private _onMotionPreferenceChange = (event: MediaQueryListEvent): void => {
+    this._prefersReducedMotion = event.matches;
+    this._syncAnimationState();
+  };
+
+  private _onVisibilityChange = (): void => {
+    this._isPageVisible = !document.hidden;
+    this._syncAnimationState();
+  };
 
   /**
    * Create the canvas (inside an SVG <foreignObject>) if it is missing or was
@@ -549,21 +616,46 @@ class HRVCard extends LitElement {
   private _syncAnimationState(): void {
     const canAnimate =
       this.config?.animation !== false &&
+      !this._prefersReducedMotion &&
+      this._isVisible &&
+      this._isPageVisible &&
       !!this._hass &&
       !!this._flowPaths &&
       !!this._canvas &&
       !!this._canvasCtx;
 
-    if (canAnimate && !this._animationFrame) {
-      this.startParticleAnimation();
-    } else if (!canAnimate && this._animationFrame) {
+    if (canAnimate) {
+      if (!this._animationFrame) this.startParticleAnimation();
+      return;
+    }
+
+    // Turning animation off is a reset; everything else (offscreen, hidden
+    // page, reduced motion, reconnect) is a pause so particles resume where
+    // they left off instead of restarting the flow.
+    if (this.config?.animation === false) {
       this.stopParticleAnimation();
+    } else {
+      this.pauseParticleAnimation();
     }
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
-    this.stopParticleAnimation();
+    // Keep particle state so a view switch (disconnect + reconnect) resumes
+    // the animation instead of restarting it.
+    this.pauseParticleAnimation();
+    document.removeEventListener("visibilitychange", this._onVisibilityChange);
+    if (typeof this._motionQuery?.removeEventListener === "function") {
+      this._motionQuery.removeEventListener(
+        "change",
+        this._onMotionPreferenceChange
+      );
+    } else {
+      this._motionQuery?.removeListener(this._onMotionPreferenceChange);
+    }
+    this._motionQuery = undefined;
+    this._intersectionObserver?.disconnect();
+    this._intersectionObserver = undefined;
     this._resizeObserver?.disconnect();
     this._resizeObserver = undefined;
     // Remove the whole <foreignObject> wrapper; the rest of the shadow DOM
@@ -582,12 +674,17 @@ class HRVCard extends LitElement {
     this.animateParticles();
   }
 
+  /** Cancel the frame loop but keep particle positions for a later resume. */
+  private pauseParticleAnimation(): void {
+    if (!this._animationFrame) return;
+    cancelAnimationFrame(this._animationFrame);
+    this._animationFrame = undefined;
+  }
+
+  /** Cancel the frame loop and discard all particle state. */
   private stopParticleAnimation(): void {
-    if (this._animationFrame) {
-      cancelAnimationFrame(this._animationFrame);
-      this._animationFrame = undefined;
-      this._particles = [];
-    }
+    this.pauseParticleAnimation();
+    this._particles = [];
     this._clearCanvas();
   }
 
@@ -899,6 +996,24 @@ class HRVCard extends LitElement {
 
   // ── render helpers ─────────────────────────
 
+  /** Prefer the entity's unit, then Home Assistant's configured unit system. */
+  private getTemperatureUnit(entity: string): string {
+    const entityUnit = this.getEntityAttribute<unknown>(
+      entity,
+      "unit_of_measurement"
+    );
+    if (typeof entityUnit === "string" && entityUnit.trim()) {
+      return entityUnit.trim();
+    }
+
+    const systemUnit = this._hass?.config?.unit_system?.temperature;
+    if (typeof systemUnit === "string" && systemUnit.trim()) {
+      return systemUnit.trim();
+    }
+
+    return "°C";
+  }
+
   private renderLabel(
     cssClass: string,
     entity: string,
@@ -908,8 +1023,7 @@ class HRVCard extends LitElement {
   ): TemplateResult {
     const text = value === null ? "—" : value.toFixed(decimals);
     // Show the sensor's own unit (°F users otherwise see a wrong °C label).
-    const unit =
-      this.getEntityAttribute<string>(entity, "unit_of_measurement") ?? "°C";
+    const unit = this.getTemperatureUnit(entity);
     const ariaLabel = [label, "temperature", text, unit].filter(Boolean).join(" ");
 
     return html`

@@ -110,18 +110,30 @@ describe("HRVCard", () => {
     el.remove();
   });
 
-  it("rebuilds the canvas and restarts animation after reconnect", async () => {
+  it("rebuilds the canvas and resumes animation after reconnect", async () => {
     const el = await createCard();
     expect(el._canvas).toBeTruthy();
     expect(el._canvas.parentNode.tagName).toBe("foreignObject");
 
+    const particle = {
+      progress: 0.5,
+      speed: 0,
+      size: 4,
+      pathIndex: 0 as const,
+      offset: 0,
+      trail: [],
+    };
+    el._particles = [particle];
+
     el.remove();
     expect(el._canvas).toBeUndefined();
+    expect(el._particles).toContain(particle);
 
     document.body.appendChild(el);
     expect(el._canvas).toBeTruthy();
     expect(el._canvas.parentNode.tagName).toBe("foreignObject");
     expect(el._animationFrame).toBeDefined();
+    expect(el._particles).toContain(particle);
     el.remove();
   });
 
@@ -137,6 +149,122 @@ describe("HRVCard", () => {
     await el.updateComplete;
     expect(el._animationFrame).toBeDefined();
     el.remove();
+  });
+
+  it("pauses animation when reduced motion is requested", async () => {
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    const media = {
+      matches: false,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(listener);
+      },
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    } as unknown as MediaQueryList;
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = (() => media) as typeof window.matchMedia;
+
+    try {
+      const el = await createCard();
+      expect(el._animationFrame).toBeDefined();
+
+      const setReducedMotion = (matches: boolean) => {
+        (media as { matches: boolean }).matches = matches;
+        for (const listener of listeners) {
+          listener({ matches, media: media.media } as MediaQueryListEvent);
+        }
+      };
+
+      setReducedMotion(true);
+      expect(el._animationFrame).toBeUndefined();
+
+      setReducedMotion(false);
+      expect(el._animationFrame).toBeDefined();
+      el.remove();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("pauses animation while the card is offscreen or the page is hidden", async () => {
+    let observerCallback: IntersectionObserverCallback | undefined;
+    class MockIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+
+    const g = globalThis as Record<string, unknown>;
+    const originalObserver = g.IntersectionObserver;
+    g.IntersectionObserver = MockIntersectionObserver;
+    const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, "hidden");
+
+    try {
+      const el = await createCard();
+      expect(el._animationFrame).toBeDefined();
+
+      const particle = {
+        progress: 0.5,
+        speed: 0,
+        size: 4,
+        pathIndex: 0 as const,
+        offset: 0,
+        trail: [],
+      };
+      el._particles = [particle];
+
+      observerCallback?.(
+        [{ isIntersecting: false } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+      expect(el._animationFrame).toBeUndefined();
+      expect(el._particles).toContain(particle);
+
+      observerCallback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+      expect(el._animationFrame).toBeDefined();
+      expect(el._particles).toContain(particle);
+
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(el._animationFrame).toBeUndefined();
+      expect(el._particles).toContain(particle);
+
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(el._animationFrame).toBeDefined();
+      expect(el._particles).toContain(particle);
+      el.remove();
+    } finally {
+      if (hiddenDescriptor) {
+        Object.defineProperty(document, "hidden", hiddenDescriptor);
+      }
+      if (originalObserver === undefined) {
+        delete g.IntersectionObserver;
+      } else {
+        g.IntersectionObserver = originalObserver;
+      }
+    }
   });
 
   it("parses the crossing mask path from the SVG", async () => {
@@ -162,6 +290,25 @@ describe("HRVCard", () => {
     await el.updateComplete;
 
     expect(el.shadowRoot.querySelector(".outdoor .temp-unit")?.textContent).toBe("°F");
+    el.remove();
+  });
+
+  it("falls back to Home Assistant's configured temperature unit", async () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    document.body.appendChild(el);
+    el.setConfig(CONFIG);
+
+    const hass = makeHass({ out: 68, sup: 86, ext: 72, exh: 50 });
+    hass.states["sensor.out"].attributes = {};
+    el.hass = { ...hass, config: { unit_system: { temperature: "°F" } } };
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelector(".outdoor .temp-unit")?.textContent).toBe("°F");
+
+    el.hass = { ...hass, config: { unit_system: { temperature: "°C" } } };
+    await el.updateComplete;
+
+    expect(el.shadowRoot.querySelector(".outdoor .temp-unit")?.textContent).toBe("°C");
     el.remove();
   });
 
