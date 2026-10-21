@@ -1,5 +1,4 @@
 import eslintPluginLit from "eslint-plugin-lit";
-import eslintConfigPrettier from "eslint-config-prettier";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -44,5 +43,4 @@ export default tseslint.config(
       "no-console": "off",
     },
   },
-  eslintConfigPrettier,
 );
