@@ -79,6 +79,14 @@ const makeParticle = (): any => ({
   trailCount: 0,
 });
 
+const packMask = (cells: number[]): Uint8Array => {
+  const bitmap = new Uint8Array(Math.ceil(cells.length / 8));
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i]) bitmap[i >> 3] |= 1 << (i & 7);
+  }
+  return bitmap;
+};
+
 describe("HRVCard", () => {
   it("reports sizing for masonry and Sections layouts", () => {
     const el = document.createElement("probe-hrv-card") as any;
@@ -399,19 +407,22 @@ describe("HRVCard", () => {
     el.remove();
   });
 
-  it("classifies coordinates against the rasterized crossing mask", async () => {
+  it("classifies coordinates against the bit-packed crossing mask", async () => {
     const el = await createCard();
-    // 3x3 bitmap at MASK_RASTER_SCALE = 1; 1 = masked (particle hidden)
-    el._maskBitmap = new Uint8Array([1, 0, 1, 0, 1, 1, 0, 1, 1]);
+    // 3x3 mask packed into bits; 1 = masked (particle hidden).
+    el._maskBitmap = packMask([1, 0, 1, 0, 1, 1, 0, 1, 1]);
     el._maskBitmapWidth = 3;
     el._maskBitmapHeight = 3;
+    el._maskOriginX = 10;
+    el._maskOriginY = 5;
 
-    expect(el._isInMask(0, 0)).toBe(true);
-    expect(el._isInMask(1, 0)).toBe(false);
-    expect(el._isInMask(2, 2)).toBe(true);
-    expect(el._isInMask(-1, 0)).toBe(false);
-    expect(el._isInMask(3, 0)).toBe(false);
-    expect(el._isInMask(0, 3)).toBe(false);
+    expect(el._isInMask(10, 5)).toBe(true);
+    expect(el._isInMask(11, 5)).toBe(false);
+    expect(el._isInMask(12, 5)).toBe(true);
+    expect(el._isInMask(12, 7)).toBe(true);
+    expect(el._isInMask(9, 5)).toBe(false);
+    expect(el._isInMask(13, 5)).toBe(false);
+    expect(el._isInMask(10, 8)).toBe(false);
     el.remove();
   });
 });

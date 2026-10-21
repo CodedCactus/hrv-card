@@ -89,6 +89,9 @@ const FLOW_STROKE_WIDTH = 90;
 /** Pixels per viewBox unit in the precomputed crossing-mask bitmap. */
 const MASK_RASTER_SCALE = 1;
 
+/** Extra raster cells around the mask bounds to absorb rounding/antialiasing. */
+const MASK_RASTER_PADDING = 2;
+
 /** Fallback intrinsic SVG dimensions, used before the viewBox is available. */
 const DEFAULT_VIEWBOX_WIDTH = 1629;
 const DEFAULT_VIEWBOX_HEIGHT = 640;
@@ -237,16 +240,20 @@ class HRVCard extends LitElement {
 
   /** Mask path for canvas clipping (from SVG mask - crossing region). */
   private _maskPath?: Path2D;
+  private _maskElement?: SVGPathElement;
 
   /**
-   * Rasterized crossing mask: one byte per viewBox unit, set where path 1 must
-   * be hidden (the black cutout in #curveMask). Precomputed once so per-frame
-   * hit tests become bitmap lookups instead of per-point `isPointInPath` calls,
-   * while still classifying each particle's actual offset position.
+   * Rasterized crossing mask, packed to one bit per raster cell, set where
+   * path 1 must be hidden (the black cutout in #curveMask). Rasterized only
+   * over the mask's bounding box, so each card keeps kilobytes rather than a
+   * full-viewBox byte-per-pixel buffer. Precomputed once so per-frame hit tests
+   * are bitmap lookups instead of per-point `isPointInPath` calls.
    */
   private _maskBitmap?: Uint8Array;
   private _maskBitmapWidth = 0;
   private _maskBitmapHeight = 0;
+  private _maskOriginX = 0;
+  private _maskOriginY = 0;
 
   /** Displayed host width in CSS px (tracked via ResizeObserver). */
   private _displayWidth = 0;
@@ -661,9 +668,11 @@ class HRVCard extends LitElement {
       // (path 1 goes under path 2 there). Parse its `d` from the SVG so the two
       // definitions cannot drift apart; if it is missing, particles are simply
       // not clipped rather than the card failing.
-      const maskPathData = svgClone
-        .querySelector<SVGPathElement>('#curveMask path[fill="#000000"]')
-        ?.getAttribute("d");
+      const maskElement = svgClone.querySelector<SVGPathElement>(
+        '#curveMask path[fill="#000000"]'
+      );
+      this._maskElement = maskElement ?? undefined;
+      const maskPathData = maskElement?.getAttribute("d");
       if (maskPathData && typeof Path2D !== "undefined") {
         this._maskPath = new Path2D(maskPathData);
       }
@@ -851,24 +860,57 @@ class HRVCard extends LitElement {
   }
 
   /**
-   * Rasterize the crossing mask once (1 px per viewBox unit) so per-frame hit
-   * tests become bitmap lookups instead of an expensive `isPointInPath` call
-   * per rendered point. Kept in viewBox coordinates so each particle's offset
-   * position is classified exactly like the old per-point test.
+   * Rasterize the crossing mask once so per-frame hit tests become bitmap
+   * lookups instead of an expensive `isPointInPath` call per rendered point.
+   * Only the mask's bounding box is rasterized, and the result is bit-packed,
+   * keeping per-card memory in the kilobytes instead of a full-viewBox byte
+   * buffer. Coordinates stay in raster units so a particle's offset position is
+   * classified exactly like the old per-point test.
    */
   private _computeMaskBitmap(): void {
     this._maskBitmap = undefined;
     this._maskBitmapWidth = 0;
     this._maskBitmapHeight = 0;
+    this._maskOriginX = 0;
+    this._maskOriginY = 0;
     if (!this._maskPath) return;
 
     const viewBox = this._svg?.viewBox.baseVal;
-    const width = Math.ceil(
-      (viewBox?.width || DEFAULT_VIEWBOX_WIDTH) * MASK_RASTER_SCALE
+    const viewWidth = viewBox?.width || DEFAULT_VIEWBOX_WIDTH;
+    const viewHeight = viewBox?.height || DEFAULT_VIEWBOX_HEIGHT;
+    const scale = MASK_RASTER_SCALE;
+
+    let box = { x: 0, y: 0, width: viewWidth, height: viewHeight };
+    if (this._maskElement && typeof this._maskElement.getBBox === "function") {
+      try {
+        const measured = this._maskElement.getBBox();
+        if (measured.width > 0 && measured.height > 0) {
+          box = measured;
+        }
+      } catch {
+        // Fall back to the full viewBox when SVG geometry is unavailable.
+      }
+    }
+
+    const originX = Math.max(
+      0,
+      Math.floor(box.x * scale) - MASK_RASTER_PADDING
     );
-    const height = Math.ceil(
-      (viewBox?.height || DEFAULT_VIEWBOX_HEIGHT) * MASK_RASTER_SCALE
+    const originY = Math.max(
+      0,
+      Math.floor(box.y * scale) - MASK_RASTER_PADDING
     );
+    const endX = Math.min(
+      Math.ceil(viewWidth * scale),
+      Math.ceil((box.x + box.width) * scale) + MASK_RASTER_PADDING
+    );
+    const endY = Math.min(
+      Math.ceil(viewHeight * scale),
+      Math.ceil((box.y + box.height) * scale) + MASK_RASTER_PADDING
+    );
+    const width = endX - originX;
+    const height = endY - originY;
+    if (width <= 0 || height <= 0) return;
 
     const raster = document.createElement("canvas");
     raster.width = width;
@@ -880,27 +922,31 @@ class HRVCard extends LitElement {
     // channel then marks the masked region (same nonzero winding rule as
     // isPointInPath). An opaque background fill would make alpha non-zero
     // everywhere and mask the whole canvas.
+    ctx.setTransform(scale, 0, 0, scale, -originX, -originY);
     ctx.fillStyle = "#fff";
-    ctx.scale(MASK_RASTER_SCALE, MASK_RASTER_SCALE);
     ctx.fill(this._maskPath);
 
     const data = ctx.getImageData(0, 0, width, height).data;
-    const bitmap = new Uint8Array(width * height);
+    const cells = width * height;
+    const bitmap = new Uint8Array(Math.ceil(cells / 8));
     let masked = 0;
-    for (let i = 0; i < bitmap.length; i++) {
-      const bit = data[i * 4 + 3] > 0 ? 1 : 0;
-      bitmap[i] = bit;
-      masked += bit;
+    for (let i = 0; i < cells; i++) {
+      if (data[i * 4 + 3] > 0) {
+        bitmap[i >> 3] |= 1 << (i & 7);
+        masked++;
+      }
     }
 
-    // A sane mask always leaves part of the viewBox unmasked. An entirely
+    // A sane mask always leaves part of its bounds unmasked. An entirely
     // masked (or empty) bitmap means rasterization failed, so fall back to no
     // clipping rather than hiding every particle.
-    if (masked === 0 || masked === bitmap.length) return;
+    if (masked === 0 || masked === cells) return;
 
     this._maskBitmap = bitmap;
     this._maskBitmapWidth = width;
     this._maskBitmapHeight = height;
+    this._maskOriginX = originX;
+    this._maskOriginY = originY;
   }
 
   /** True when a viewBox coordinate lies inside the crossing mask. */
@@ -910,11 +956,12 @@ class HRVCard extends LitElement {
     const height = this._maskBitmapHeight;
     if (!bitmap || width === 0 || height === 0) return false;
 
-    const px = Math.round(x * MASK_RASTER_SCALE);
-    const py = Math.round(y * MASK_RASTER_SCALE);
+    const px = Math.round(x * MASK_RASTER_SCALE) - this._maskOriginX;
+    const py = Math.round(y * MASK_RASTER_SCALE) - this._maskOriginY;
     if (px < 0 || py < 0 || px >= width || py >= height) return false;
 
-    return bitmap[py * width + px] === 1;
+    const index = py * width + px;
+    return (bitmap[index >> 3] & (1 << (index & 7))) !== 0;
   }
 
   private renderParticles(): void {
