@@ -1,4 +1,5 @@
-import { type TemplateResult, LitElement, html, css, type PropertyValues } from "lit";
+import { LitElement, html, css } from "lit";
+import type { PropertyValues, TemplateResult } from "lit";
 import hrvSvg from "./assets/card.svg?raw";
 import { tempToColor, buildGradientTemps } from "./color";
 
@@ -72,8 +73,20 @@ const GRADIENT_IDS = {
   path2: "gradientPath2",
 } as const;
 
+const FLOW_PATH_IDS = ["path10", "path11"] as const;
+
+/** Number of samples used to precompute each flow path. */
+const PATH_SAMPLE_COUNT = 100;
+
+/** Stroke width of the flow paths in viewBox units (must match the SVG). */
+const FLOW_STROKE_WIDTH = 90;
+
 /** Pixels per viewBox unit in the precomputed crossing-mask bitmap. */
 const MASK_RASTER_SCALE = 1;
+
+/** Fallback intrinsic SVG dimensions, used before the viewBox is available. */
+const DEFAULT_VIEWBOX_WIDTH = 1629;
+const DEFAULT_VIEWBOX_HEIGHT = 640;
 
 // ─────────────────────────────────────────────
 // Module-level SVG cache
@@ -114,6 +127,14 @@ interface TrailPoint {
   progress: number;  // progress along path
   offset: number;    // perpendicular offset
   time: number;      // performance.now() when the point was recorded
+}
+
+/** Precomputed point on a flow path plus its unit tangent. */
+interface PathPoint {
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
 }
 
 function queryGradientStops(svg: SVGSVGElement): GradientStops {
@@ -162,14 +183,14 @@ class HRVCard extends LitElement {
   /** Cloned SVG element; owns the flow paths, gradient stops, and canvas. */
   private _svg?: SVGSVGElement;
 
-/** Cached references to the live <stop> elements inside this card's SVG. */
+  /** Cached references to the live <stop> elements inside this card's SVG. */
   private _gradientStops?: GradientStops;
 
   /** Cached SVG path elements for particle animation. */
   private _flowPaths?: [SVGPathElement, SVGPathElement];
 
   /** Precomputed path points for fast interpolation. */
-  private _pathPoints: { points: { x: number; y: number; tx: number; ty: number }[]; length: number }[] = [];
+  private _pathPoints: PathPoint[][] = [];
 
   /** Canvas for particle rendering. */
   private _canvas?: HTMLCanvasElement;
@@ -186,6 +207,7 @@ class HRVCard extends LitElement {
    */
   private _maskBitmap?: Uint8Array;
   private _maskBitmapWidth = 0;
+  private _maskBitmapHeight = 0;
 
   /** Displayed host width in CSS px (tracked via ResizeObserver). */
   private _displayWidth = 0;
@@ -282,15 +304,27 @@ class HRVCard extends LitElement {
       }
     }
 
-    this.config = { ...config };
+    const sensors = config.sensors?.map((sensor) => ({
+      ...sensor,
+      entity: sensor.entity.trim(),
+    }));
+
+    this.config = {
+      ...config,
+      outdoor_temp: config.outdoor_temp.trim(),
+      supply_temp: config.supply_temp.trim(),
+      extract_temp: config.extract_temp.trim(),
+      exhaust_temp: config.exhaust_temp.trim(),
+      sensors,
+    };
 
     // Cache tracked entities so the hass setter never allocates on each call.
     this._trackedEntities = [
-      config.outdoor_temp,
-      config.supply_temp,
-      config.extract_temp,
-      config.exhaust_temp,
-      ...(config.sensors?.map((s) => s.entity) ?? []),
+      this.config.outdoor_temp,
+      this.config.supply_temp,
+      this.config.extract_temp,
+      this.config.exhaust_temp,
+      ...(sensors?.map((sensor) => sensor.entity) ?? []),
     ];
   }
 
@@ -311,7 +345,7 @@ class HRVCard extends LitElement {
     const raw = this._hass?.states?.[entity]?.state;
     if (raw === undefined || raw === null) return null;
     const num = Number(raw);
-    return Number.isNaN(num) ? null : num;
+    return Number.isFinite(num) ? num : null;
   }
 
   private getEntityAttribute<T>(entity: string, attribute: string): T | undefined {
@@ -336,16 +370,19 @@ class HRVCard extends LitElement {
 
     let display: string;
     if (isBinary) {
-      display = isOn
-        ? (isOpening ? "Open"   : "On")
-        : (isOpening ? "Closed" : "Off");
-    } else if (sensor.format === "number") {
-      const num = Number(state);
-      const decimals = sensor.decimals ?? 1;
-      display = Number.isNaN(num) ? state : num.toFixed(decimals);
+      if (isOn) {
+        display = isOpening ? "Open" : "On";
+      } else if (state === "off") {
+        display = isOpening ? "Closed" : "Off";
+      } else {
+        display = state;
+      }
+    } else if (sensor.format === "text") {
+      display = state;
     } else {
       const num = Number(state);
-      display = Number.isNaN(num) ? state : num.toFixed(1);
+      const decimals = sensor.format === "number" ? (sensor.decimals ?? 1) : 1;
+      display = Number.isFinite(num) ? num.toFixed(decimals) : state;
     }
 
     return { display, unit, isBinary, isOn, isHeat };
@@ -409,11 +446,15 @@ class HRVCard extends LitElement {
     htmlCanvas.style.width = "100%";
     htmlCanvas.style.height = "100%";
     htmlCanvas.style.display = "block";
-    wrapper.appendChild(htmlCanvas);
 
+    const ctx = htmlCanvas.getContext("2d");
+    if (!ctx) return;
+
+    wrapper.appendChild(htmlCanvas);
     this._svg.appendChild(wrapper);
     this._canvas = htmlCanvas;
-    this._canvasCtx = htmlCanvas.getContext("2d")!;
+    this._canvasCtx = ctx;
+    this._canvasScale = 0;
 
     // Track the displayed card width so the canvas backing store can be sized
     // to actual device pixels instead of the full viewBox resolution. The host
@@ -441,23 +482,20 @@ class HRVCard extends LitElement {
     this._gradientStops = queryGradientStops(svgClone);
 
     // Cache the flow path elements for particle animation.
-    const path1 = svgClone.querySelector<SVGPathElement>("#path10");
-    const path2 = svgClone.querySelector<SVGPathElement>("#path11");
+    const path1 = svgClone.querySelector<SVGPathElement>(`#${FLOW_PATH_IDS[0]}`);
+    const path2 = svgClone.querySelector<SVGPathElement>(`#${FLOW_PATH_IDS[1]}`);
     if (path1 && path2) {
       this._flowPaths = [path1, path2];
-      const pathLengths: [number, number] = [
-        path1.getTotalLength(),
-        path2.getTotalLength(),
-      ];
+      this._pathPoints = [];
+      const pathLengths = [path1.getTotalLength(), path2.getTotalLength()] as const;
 
       // Precompute path points for fast interpolation.
-      const SAMPLE_COUNT = 100;
       for (let i = 0; i < 2; i++) {
         const path = this._flowPaths[i];
         const length = pathLengths[i];
-        const points: { x: number; y: number; tx: number; ty: number }[] = [];
-        for (let j = 0; j <= SAMPLE_COUNT; j++) {
-          const progress = j / SAMPLE_COUNT;
+        const points: PathPoint[] = [];
+        for (let j = 0; j <= PATH_SAMPLE_COUNT; j++) {
+          const progress = j / PATH_SAMPLE_COUNT;
           const len = progress * length;
           const pt = path.getPointAtLength(len);
           const nextLen = Math.min(len + 1, length);
@@ -467,7 +505,7 @@ class HRVCard extends LitElement {
           const tangentLen = Math.hypot(dx, dy) || 1;
           points.push({ x: pt.x, y: pt.y, tx: dx / tangentLen, ty: dy / tangentLen });
         }
-        this._pathPoints.push({ points, length });
+        this._pathPoints.push(points);
       }
 
       // Create canvas inside SVG (as sibling to paths) for perfect alignment.
@@ -480,7 +518,9 @@ class HRVCard extends LitElement {
       const maskPathData = svgClone
         .querySelector<SVGPathElement>('#curveMask path[fill="#000000"]')
         ?.getAttribute("d");
-      if (maskPathData) this._maskPath = new Path2D(maskPathData);
+      if (maskPathData && typeof Path2D !== "undefined") {
+        this._maskPath = new Path2D(maskPathData);
+      }
 
       this._computeMaskBitmap();
 
@@ -488,19 +528,19 @@ class HRVCard extends LitElement {
     }
 
     // Apply initial gradient colours if hass data is already available.
-    if (this._hass) this.updateSvgGradients();
+    this.updateSvgGradients();
   }
 
-  protected updated(changedProps: Map<string, unknown>): void {
+  protected updated(changedProps: PropertyValues): void {
     // Consumed: the update that shouldUpdate let through is now complete.
     this._trackedStateChanged = false;
 
-    if (changedProps.has("_hass")) {
-      this.updateSvgGradients();
-    }
-    // React to data *and* config changes, so toggling `animation` in the card
-    // editor takes effect immediately without waiting for a state update.
     if (changedProps.has("_hass") || changedProps.has("config")) {
+      // A config change can point the card at different entities, so the
+      // gradients must be recomputed from the new configuration too.
+      this.updateSvgGradients();
+      // Toggling `animation` in the card editor takes effect immediately
+      // without waiting for a state update.
       this._syncAnimationState();
     }
   }
@@ -511,7 +551,8 @@ class HRVCard extends LitElement {
       this.config?.animation !== false &&
       !!this._hass &&
       !!this._flowPaths &&
-      !!this._canvas;
+      !!this._canvas &&
+      !!this._canvasCtx;
 
     if (canAnimate && !this._animationFrame) {
       this.startParticleAnimation();
@@ -530,6 +571,7 @@ class HRVCard extends LitElement {
     this._svg?.querySelector("foreignObject")?.remove();
     this._canvas = undefined;
     this._canvasCtx = undefined;
+    this._canvasScale = 0;
   }
 
   // ── Particle animation ────────────────────────
@@ -634,11 +676,16 @@ class HRVCard extends LitElement {
   private _computeMaskBitmap(): void {
     this._maskBitmap = undefined;
     this._maskBitmapWidth = 0;
+    this._maskBitmapHeight = 0;
     if (!this._maskPath) return;
 
     const viewBox = this._svg?.viewBox.baseVal;
-    const width = Math.ceil((viewBox?.width || 1629) * MASK_RASTER_SCALE);
-    const height = Math.ceil((viewBox?.height || 640) * MASK_RASTER_SCALE);
+    const width = Math.ceil(
+      (viewBox?.width || DEFAULT_VIEWBOX_WIDTH) * MASK_RASTER_SCALE
+    );
+    const height = Math.ceil(
+      (viewBox?.height || DEFAULT_VIEWBOX_HEIGHT) * MASK_RASTER_SCALE
+    );
 
     const raster = document.createElement("canvas");
     raster.width = width;
@@ -670,17 +717,18 @@ class HRVCard extends LitElement {
 
     this._maskBitmap = bitmap;
     this._maskBitmapWidth = width;
+    this._maskBitmapHeight = height;
   }
 
   /** True when a viewBox coordinate lies inside the crossing mask. */
   private _isInMask(x: number, y: number): boolean {
     const bitmap = this._maskBitmap;
     const width = this._maskBitmapWidth;
-    if (!bitmap || width === 0) return false;
+    const height = this._maskBitmapHeight;
+    if (!bitmap || width === 0 || height === 0) return false;
 
     const px = Math.round(x * MASK_RASTER_SCALE);
     const py = Math.round(y * MASK_RASTER_SCALE);
-    const height = Math.floor(bitmap.length / width);
     if (px < 0 || py < 0 || px >= width || py >= height) return false;
 
     return bitmap[py * width + px] === 1;
@@ -694,17 +742,20 @@ class HRVCard extends LitElement {
 
     // Canvas is inside SVG foreignObject; draw in viewBox coordinates.
     const viewBox = this._svg?.viewBox.baseVal;
-    const VIEWBOX_WIDTH = viewBox?.width || 1629;
-    const VIEWBOX_HEIGHT = viewBox?.height || 640;
+    const viewBoxWidth = viewBox?.width || DEFAULT_VIEWBOX_WIDTH;
+    const viewBoxHeight = viewBox?.height || DEFAULT_VIEWBOX_HEIGHT;
 
     // Size the backing store to the displayed card size in device pixels
     // rather than the full viewBox at device resolution — an order-of-magnitude
     // memory and fill-rate saving on typical dashboards. Capped at one device
     // pixel per viewBox unit, i.e. the old behaviour, so oversized viewports
     // don't render detail the artwork doesn't have.
-    const scale = Math.min(((this._displayWidth || VIEWBOX_WIDTH) * dpr) / VIEWBOX_WIDTH, dpr);
-    const width = Math.round(VIEWBOX_WIDTH * scale);
-    const height = Math.round(VIEWBOX_HEIGHT * scale);
+    const scale = Math.min(
+      ((this._displayWidth || viewBoxWidth) * dpr) / viewBoxWidth,
+      dpr
+    );
+    const width = Math.round(viewBoxWidth * scale);
+    const height = Math.round(viewBoxHeight * scale);
 
     if (
       this._canvas.width !== width ||
@@ -720,21 +771,18 @@ class HRVCard extends LitElement {
     // Clear first (in viewBox coordinates) so a particle field that just
     // emptied (e.g. temps became unavailable) does not leave stale particles
     // frozen on screen.
-    ctx.clearRect(0, 0, VIEWBOX_WIDTH, VIEWBOX_HEIGHT);
+    ctx.clearRect(0, 0, viewBoxWidth, viewBoxHeight);
 
     if (!this._particles.length) return;
 
-    const strokeWidth = 90; // matches SVG stroke-width
-    const SAMPLE_COUNT = 100;
-
     /** Get interpolated point and tangent from precomputed path data. */
     const getPathData = (pathIndex: number, progress: number) => {
-      const { points } = this._pathPoints[pathIndex];
-      const idx = progress * SAMPLE_COUNT;
+      const points = this._pathPoints[pathIndex];
+      const idx = progress * PATH_SAMPLE_COUNT;
       const i = Math.floor(idx);
       const f = idx - i;
-      const a = points[Math.min(i, SAMPLE_COUNT)];
-      const b = points[Math.min(i + 1, SAMPLE_COUNT)];
+      const a = points[Math.min(i, PATH_SAMPLE_COUNT)];
+      const b = points[Math.min(i + 1, PATH_SAMPLE_COUNT)];
       return {
         x: a.x + (b.x - a.x) * f,
         y: a.y + (b.y - a.y) * f,
@@ -754,8 +802,8 @@ class HRVCard extends LitElement {
       const px = -ty;
       const py = tx;
 
-      const offsetX = px * offset * (strokeWidth / 2);
-      const offsetY = py * offset * (strokeWidth / 2);
+      const offsetX = px * offset * (FLOW_STROKE_WIDTH / 2);
+      const offsetY = py * offset * (FLOW_STROKE_WIDTH / 2);
 
       let progressOpacity = 1;
       if (progress < FADE_IN_END) {
@@ -857,17 +905,19 @@ class HRVCard extends LitElement {
     value: number | null,
     label: string,
     decimals: number = 1
-  ) {
+  ): TemplateResult {
     const text = value === null ? "—" : value.toFixed(decimals);
     // Show the sensor's own unit (°F users otherwise see a wrong °C label).
-    const unit = this.getEntityAttribute<string>(entity, "unit_of_measurement") ?? "°C";
+    const unit =
+      this.getEntityAttribute<string>(entity, "unit_of_measurement") ?? "°C";
+    const ariaLabel = [label, "temperature", text, unit].filter(Boolean).join(" ");
 
     return html`
       <button
         type="button"
         class="label ${cssClass}"
         title=${label}
-        aria-label=${`${label} temperature ${text} ${unit}`}
+        aria-label=${ariaLabel}
         @click=${() => this.handleMoreInfo(entity)}
       >
         <span class="temp-row"><span class="temp-value">${text}</span><span class="temp-unit">${unit}</span></span>
@@ -876,19 +926,17 @@ class HRVCard extends LitElement {
     `;
   }
 
-  private renderSensorChip(sensor: SensorConfig) {
-    const { display, unit, isBinary, isOn, isHeat } = this.getSensorDisplayInfo(sensor);
+  private renderSensorChip(sensor: SensorConfig): TemplateResult {
+    const { display, unit, isBinary, isOn, isHeat } =
+      this.getSensorDisplayInfo(sensor);
     const label =
-      sensor.label ??
+      sensor.label ||
       (sensor.entity.split(".").pop() ?? sensor.entity).replace(/_/g, " ");
 
-    const dotClass = isBinary
-      ? isHeat && isOn
-        ? "dot--heat"
-        : isOn
-        ? "dot--on"
-        : "dot--off"
-      : "";
+    let dotClass = "";
+    if (isBinary) {
+      dotClass = isHeat && isOn ? "dot--heat" : isOn ? "dot--on" : "dot--off";
+    }
 
     const valueText = !isBinary && unit ? `${display} ${unit}` : display;
 
@@ -909,7 +957,7 @@ class HRVCard extends LitElement {
     `;
   }
 
-  private renderSensorRow() {
+  private renderSensorRow(): TemplateResult {
     const sensors = this.config?.sensors ?? [];
     if (!sensors.length) return html``;
 
@@ -923,12 +971,12 @@ class HRVCard extends LitElement {
   /** Build the chip templates outside the render function so the template
    * expression stays a plain array literal (avoids `.map` in markup). */
   private _renderSensorChips(sensors: SensorConfig[]): TemplateResult[] {
-    return sensors.map((s) => this.renderSensorChip(s));
+    return sensors.map((sensor) => this.renderSensorChip(sensor));
   }
 
   // ── render ─────────────────────────────────
 
-  render() {
+  render(): TemplateResult {
     if (!this._hass || !this.config) return html``;
 
     const { outdoor_temp, supply_temp, extract_temp, exhaust_temp } = this.config;
@@ -936,7 +984,7 @@ class HRVCard extends LitElement {
     return html`
       <ha-card>
         <div class="mini-header">
-          <span class="mini-title">${this.config.title ?? "HRV System"}</span>
+          <span class="mini-title">${this.config.title || "HRV System"}</span>
         </div>
 
         <div class="wrap">
@@ -945,10 +993,9 @@ class HRVCard extends LitElement {
 
           <div class="overlay">
             ${this.renderLabel("outdoor", outdoor_temp, this.getNumericState(outdoor_temp), "Outdoor")}
-            ${this.renderLabel("supply",  supply_temp,  this.getNumericState(supply_temp),  "Supply")}
+            ${this.renderLabel("supply", supply_temp, this.getNumericState(supply_temp), "Supply")}
             ${this.renderLabel("extract", extract_temp, this.getNumericState(extract_temp), "Extract")}
             ${this.renderLabel("exhaust", exhaust_temp, this.getNumericState(exhaust_temp), "Exhaust")}
-
           </div>
         </div>
 

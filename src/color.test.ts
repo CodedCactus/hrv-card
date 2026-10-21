@@ -54,6 +54,11 @@ describe("tempToColor", () => {
     expect(tempToColor(5)).toBe(tempToColor(1));
   });
 
+  it("falls back to the first stop for non-finite input", () => {
+    expect(tempToColor(Number.NaN)).toBe(tempToColor(0));
+    expect(tempToColor(Number.POSITIVE_INFINITY)).toBe(tempToColor(0));
+  });
+
   it("produces a valid rgb() string", () => {
     expect(tempToColor(0.5)).toMatch(/^rgb\(\d+,\d+,\d+\)$/);
   });
@@ -67,7 +72,7 @@ describe("buildGradientTemps", () => {
   });
 
   it("interpolates the middle stops", () => {
-    const [, second, third,] = buildGradientTemps(0, 30);
+    const [, second, third] = buildGradientTemps(0, 30);
     expect(second).toBeCloseTo(9.9, 5);
     expect(third).toBeCloseTo(19.8, 5);
   });

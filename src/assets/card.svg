@@ -79,14 +79,12 @@
      stroke="url(#gradientPath1)"
      stroke-width="90"
      mask="url(#curveMask)"
-     id="path10"
-     style="stroke:url(#gradientPath1)" />
+     id="path10" />
   <!-- Path 2: extract (top-right) → exhaust (bottom-left) -->
   <path
      d="m 1590.2128,185.45455 -309.7363,-0.13621 c -67.2347,0.42883 -104.5836,11.78795 -162.6063,41.30753 L 577.40519,466.97552 C 490.79649,505.89751 447.66409,516.48663 371.38069,516 L 49.485592,515.63636"
      fill="none"
      stroke="url(#gradientPath2)"
      stroke-width="90"
-     id="path11"
-     style="stroke:url(#gradientPath2)" />
+     id="path11" />
 </svg>

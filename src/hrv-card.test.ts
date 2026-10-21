@@ -179,11 +179,36 @@ describe("HRVCard", () => {
     el.remove();
   });
 
+  it("renders text sensors verbatim and numbers with configured decimals", async () => {
+    const el = document.createElement("probe-hrv-card") as any;
+    document.body.appendChild(el);
+    el.setConfig({
+      ...CONFIG,
+      sensors: [
+        { entity: "sensor.mode", format: "text" },
+        { entity: "sensor.flow", format: "number", decimals: 2 },
+      ],
+    });
+
+    const hass = makeHass({ out: 5, sup: 30, ext: 22, exh: 10 });
+    hass.states["sensor.mode"] = { state: "42", attributes: {} };
+    hass.states["sensor.flow"] = { state: "12.345", attributes: {} };
+    el.hass = hass;
+    await el.updateComplete;
+
+    const values = [...el.shadowRoot.querySelectorAll(".sensor-value")].map(
+      (node: Element) => node.textContent?.trim()
+    );
+    expect(values).toEqual(["42", "12.35"]);
+    el.remove();
+  });
+
   it("classifies coordinates against the rasterized crossing mask", async () => {
     const el = await createCard();
     // 3x3 bitmap at MASK_RASTER_SCALE = 1; 1 = masked (particle hidden)
     el._maskBitmap = new Uint8Array([1, 0, 1, 0, 1, 1, 0, 1, 1]);
     el._maskBitmapWidth = 3;
+    el._maskBitmapHeight = 3;
 
     expect(el._isInMask(0, 0)).toBe(true);
     expect(el._isInMask(1, 0)).toBe(false);

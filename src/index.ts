@@ -10,7 +10,7 @@ window.customCards.push({
 });
 
 console.info(
-    `%c HRV-CARD %c v${VERSION} `,
-    "color: orange; font-weight: bold; background: black",
-    "color: white; font-weight: bold; background: dimgray"
+  `%c HRV-CARD %c v${VERSION} `,
+  "color: orange; font-weight: bold; background: black",
+  "color: white; font-weight: bold; background: dimgray",
 );

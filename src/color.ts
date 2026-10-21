@@ -29,7 +29,7 @@ function lerpChannel(a: number, b: number, t: number): number {
  * along the cool-to-warm ramp.
  */
 export function tempToColor(normalised: number): string {
-  const t = clamp(normalised);
+  const t = Number.isFinite(normalised) ? clamp(normalised) : 0;
   const segments = COLOR_STOPS.length - 1;
   const scaled = t * segments;
   const i = Math.floor(scaled);
