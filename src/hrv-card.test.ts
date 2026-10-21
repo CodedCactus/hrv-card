@@ -156,35 +156,35 @@ describe("HRVCard", () => {
 
   it("rebuilds the canvas and resumes animation after reconnect", async () => {
     const el = await createCard();
-    expect(el._canvas).toBeTruthy();
-    expect(el._canvas.parentNode.tagName).toBe("foreignObject");
+    expect(el._engine._canvas).toBeTruthy();
+    expect(el._engine._canvas.parentNode.tagName).toBe("foreignObject");
 
     const particle = makeParticle();
-    el._particles = [particle];
+    el._engine._particles = [particle];
 
     el.remove();
-    expect(el._canvas).toBeUndefined();
-    expect(el._particles).toContain(particle);
+    expect(el._engine._canvas).toBeUndefined();
+    expect(el._engine._particles).toContain(particle);
 
     document.body.appendChild(el);
-    expect(el._canvas).toBeTruthy();
-    expect(el._canvas.parentNode.tagName).toBe("foreignObject");
-    expect(el._animationFrame).toBeDefined();
-    expect(el._particles).toContain(particle);
+    expect(el._engine._canvas).toBeTruthy();
+    expect(el._engine._canvas.parentNode.tagName).toBe("foreignObject");
+    expect(el._engine._animationFrame).toBeDefined();
+    expect(el._engine._particles).toContain(particle);
     el.remove();
   });
 
   it("applies animation config changes without a hass update", async () => {
     const el = await createCard();
-    expect(el._animationFrame).toBeDefined();
+    expect(el._engine._animationFrame).toBeDefined();
 
     el.setConfig({ ...CONFIG, animation: false });
     await el.updateComplete;
-    expect(el._animationFrame).toBeUndefined();
+    expect(el._engine._animationFrame).toBeUndefined();
 
     el.setConfig({ ...CONFIG, animation: true });
     await el.updateComplete;
-    expect(el._animationFrame).toBeDefined();
+    expect(el._engine._animationFrame).toBeDefined();
     el.remove();
   });
 
@@ -209,7 +209,7 @@ describe("HRVCard", () => {
 
     try {
       const el = await createCard();
-      expect(el._animationFrame).toBeDefined();
+      expect(el._engine._animationFrame).toBeDefined();
 
       const setReducedMotion = (matches: boolean) => {
         (media as { matches: boolean }).matches = matches;
@@ -219,10 +219,10 @@ describe("HRVCard", () => {
       };
 
       setReducedMotion(true);
-      expect(el._animationFrame).toBeUndefined();
+      expect(el._engine._animationFrame).toBeUndefined();
 
       setReducedMotion(false);
-      expect(el._animationFrame).toBeDefined();
+      expect(el._engine._animationFrame).toBeDefined();
       el.remove();
     } finally {
       window.matchMedia = originalMatchMedia;
@@ -250,40 +250,40 @@ describe("HRVCard", () => {
 
     try {
       const el = await createCard();
-      expect(el._animationFrame).toBeDefined();
+      expect(el._engine._animationFrame).toBeDefined();
 
       const particle = makeParticle();
-      el._particles = [particle];
+      el._engine._particles = [particle];
 
       observerCallback?.(
         [{ isIntersecting: false } as IntersectionObserverEntry],
         {} as IntersectionObserver
       );
-      expect(el._animationFrame).toBeUndefined();
-      expect(el._particles).toContain(particle);
+      expect(el._engine._animationFrame).toBeUndefined();
+      expect(el._engine._particles).toContain(particle);
 
       observerCallback?.(
         [{ isIntersecting: true } as IntersectionObserverEntry],
         {} as IntersectionObserver
       );
-      expect(el._animationFrame).toBeDefined();
-      expect(el._particles).toContain(particle);
+      expect(el._engine._animationFrame).toBeDefined();
+      expect(el._engine._particles).toContain(particle);
 
       Object.defineProperty(document, "hidden", {
         configurable: true,
         get: () => true,
       });
       document.dispatchEvent(new Event("visibilitychange"));
-      expect(el._animationFrame).toBeUndefined();
-      expect(el._particles).toContain(particle);
+      expect(el._engine._animationFrame).toBeUndefined();
+      expect(el._engine._particles).toContain(particle);
 
       Object.defineProperty(document, "hidden", {
         configurable: true,
         get: () => false,
       });
       document.dispatchEvent(new Event("visibilitychange"));
-      expect(el._animationFrame).toBeDefined();
-      expect(el._particles).toContain(particle);
+      expect(el._engine._animationFrame).toBeDefined();
+      expect(el._engine._particles).toContain(particle);
       el.remove();
     } finally {
       if (hiddenDescriptor) {
@@ -299,7 +299,7 @@ describe("HRVCard", () => {
 
   it("parses the crossing mask path from the SVG", async () => {
     const el = await createCard();
-    expect(el._maskPath).toBeTruthy();
+    expect(el._engine._maskPath).toBeTruthy();
     el.remove();
   });
 
@@ -410,19 +410,19 @@ describe("HRVCard", () => {
   it("classifies coordinates against the bit-packed crossing mask", async () => {
     const el = await createCard();
     // 3x3 mask packed into bits; 1 = masked (particle hidden).
-    el._maskBitmap = packMask([1, 0, 1, 0, 1, 1, 0, 1, 1]);
-    el._maskBitmapWidth = 3;
-    el._maskBitmapHeight = 3;
-    el._maskOriginX = 10;
-    el._maskOriginY = 5;
+    el._engine._maskBitmap = packMask([1, 0, 1, 0, 1, 1, 0, 1, 1]);
+    el._engine._maskBitmapWidth = 3;
+    el._engine._maskBitmapHeight = 3;
+    el._engine._maskOriginX = 10;
+    el._engine._maskOriginY = 5;
 
-    expect(el._isInMask(10, 5)).toBe(true);
-    expect(el._isInMask(11, 5)).toBe(false);
-    expect(el._isInMask(12, 5)).toBe(true);
-    expect(el._isInMask(12, 7)).toBe(true);
-    expect(el._isInMask(9, 5)).toBe(false);
-    expect(el._isInMask(13, 5)).toBe(false);
-    expect(el._isInMask(10, 8)).toBe(false);
+    expect(el._engine._isInMask(10, 5)).toBe(true);
+    expect(el._engine._isInMask(11, 5)).toBe(false);
+    expect(el._engine._isInMask(12, 5)).toBe(true);
+    expect(el._engine._isInMask(12, 7)).toBe(true);
+    expect(el._engine._isInMask(9, 5)).toBe(false);
+    expect(el._engine._isInMask(13, 5)).toBe(false);
+    expect(el._engine._isInMask(10, 8)).toBe(false);
     el.remove();
   });
 });
