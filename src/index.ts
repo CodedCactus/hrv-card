@@ -5,8 +5,10 @@ window.customCards ??= [];
 window.customCards.push({
   type: "hrv-card",
   name: "HRV Card",
-  description: "Heat Recovery Ventilation visualization card",
+  description:
+    "Visualize Heat Recovery Ventilation (HRV/ERV) temperatures and airflow",
   preview: true,
+  documentationURL: "https://github.com/CodedCactus/hrv-card#readme",
 });
 
 console.info(

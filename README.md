@@ -1,30 +1,36 @@
-# 🌀 HRV Card
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CodedCactus&repository=hrv-card&category=plugin)
+# HRV Card — Heat Recovery Ventilation for Home Assistant
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CodedCactus&repository=hrv-card&category=plugin)
 
 ![Build Status](https://github.com/CodedCactus/hrv-card/workflows/Build%20and%20Publish%20HRV%20Card/badge.svg)
 ![Latest Release](https://img.shields.io/github/v/release/CodedCactus/hrv-card)
+![License](https://img.shields.io/github/license/CodedCactus/hrv-card)
 [![HACS installs](https://img.shields.io/github/downloads/CodedCactus/hrv-card/total?label=HACS%20installs&color=41BDF5)](https://github.com/CodedCactus/hrv-card/releases)
 
-A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation (HRV) systems with dynamic temperature flow gradients.
+**HRV Card** is a custom [Home Assistant](https://www.home-assistant.io/) Lovelace card for visualizing Heat Recovery Ventilation (HRV) and Energy Recovery Ventilation (ERV) systems. It turns outdoor, supply, extract, and exhaust temperature sensors into a live, animated airflow diagram with dynamic cold-to-warm gradients and optional status sensors.
 
-## ✨ Features
+Works with any Home Assistant HRV/ERV integration that exposes temperature entities, including Zehnder, Mitsubishi, Panasonic, and ESPHome-based systems.
 
-* 🌡️ **Real-time HRV temperature visualization** - Displays outdoor, supply, extract, and exhaust temperatures
+## Features
+
+* 🌡️ **Real-time HRV temperature visualization** - Displays outdoor, supply, extract, and exhaust temperatures on one card
 * 🎨 **Dynamic color gradients** - Cold-to-warm flow mapping with smooth color transitions
-* 🏠 **Native Home Assistant integration** - Seamless card integration with HA themes
-* 📱 **Responsive SVG-based visualization** - Scales beautifully on all devices
-* 📐 **Dashboard-aware sizing** - Uses Home Assistant's masonry and Sections layout APIs
+* 🏠 **Native Home Assistant integration** - Inherits your active theme, colors, and typography
+* 📱 **Responsive SVG visualization** - Scales cleanly on desktop, tablet, and mobile dashboards
+* 📐 **Dashboard-aware sizing** - Works with Home Assistant masonry and Sections view layout APIs
 * 🛠️ **Visual card editor** - Configure temperature entities, animation, and extra sensors without YAML
-* ⚡ **Lightweight and fast** - Built with Lit for optimal performance
+* ⚡ **Lightweight and fast** - Built with Lit and a canvas particle renderer
 * ♿ **Accessibility-aware** - Animation respects reduced-motion settings and pauses when offscreen or hidden
-* 🔧 **Customizable sensor display** - Show additional sensors with status indicators
+* 🔧 **Customizable sensor display** - Add bypass, heater, flow, filter, or any other status sensor
 
-## 📸 Preview
+## Preview
 
-![HRV Card Preview](docs/preview.webp)
+<picture>
+  <source srcset="docs/preview.webp" type="image/webp">
+  <img src="docs/preview.png" alt="Animated HRV Card showing outdoor, supply, extract, and exhaust temperatures with colored airflow paths">
+</picture>
 
-## 📦 Installation
+## Installation
 
 ### 🟡 HACS (Recommended)
 
@@ -35,13 +41,17 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 5. Install **HRV Card**
 6. Restart Home Assistant
 
+Or use the **Open in HACS** badge above to jump straight to the repository in your Home Assistant instance.
+
 ### 🔧 Manual Installation
 
 1. Download `hrv-card.js` from the [latest release](https://github.com/CodedCactus/hrv-card/releases)
-2. Copy it to your Home Assistant's www directory:
-   ```
+2. Copy it to your Home Assistant `www` directory:
+
+   ```text
    /config/www/hrv-card.js
    ```
+
 3. Add the resource to your Home Assistant configuration:
 
    ```yaml
@@ -52,15 +62,15 @@ A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation 
 
 4. Restart Home Assistant
 
-## 🧩 Usage
+## Usage
 
 ### Add via UI Editor
 
 1. Go to your dashboard in edit mode
 2. Click **Add Card**
-3. Search for and select **HRV Card**
-4. Configure the required temperature sensors
-5. Add optional sensors for additional status display
+3. Search for **HRV Card**
+4. Pick your four HRV temperature entities
+5. Add optional status sensors such as bypass, heater, flow, or filter
 
 ### YAML Configuration
 
@@ -84,36 +94,44 @@ sensors:
     unit: "%"
 ```
 
-## ⚙️ Configuration Options
+## Configuration Options
 
 | Option | Required | Type | Description |
 |--------|----------|------|-------------|
 | `title` | No | string | Card title (defaults to "HRV System") |
-| `outdoor_temp` | Yes | string | Entity ID for outdoor temperature sensor |
-| `supply_temp` | Yes | string | Entity ID for supply air temperature sensor |
-| `extract_temp` | Yes | string | Entity ID for extract air temperature sensor |
-| `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature sensor |
-| `sensors` | No | array | Array of additional sensors to display |
-| `animation` | No | boolean | Enable flow animation (default: `true`; disabled when the OS requests reduced motion) |
+| `outdoor_temp` | Yes | string | Entity ID for outdoor temperature |
+| `supply_temp` | Yes | string | Entity ID for supply air temperature |
+| `extract_temp` | Yes | string | Entity ID for extract air temperature |
+| `exhaust_temp` | Yes | string | Entity ID for exhaust air temperature |
+| `sensors` | No | array | Additional status sensors shown below the diagram |
+| `animation` | No | boolean | Enable flow animation (default: `true`; disabled when reduced motion is requested) |
 
 ### Sensor Configuration
 
-Each sensor in the `sensors` array supports:
+Each entry in `sensors` supports:
 
 | Option | Required | Type | Description |
 |--------|----------|------|-------------|
 | `entity` | Yes | string | Entity ID of the sensor |
-| `label` | No | string | Display label (defaults to entity name) |
+| `label` | No | string | Display label (defaults to the entity name) |
 | `format` | No | string | Display format: `"binary"`, `"text"`, or `"number"` (auto-detected) |
 | `decimals` | No | number | Decimal places for numeric sensors (default: 1) |
-| `unit` | No | string | Unit to display (auto-detected from entity) |
+| `unit` | No | string | Unit to display (auto-detected from the entity) |
 
-## 🔧 Development
+## Compatibility
+
+- Any Home Assistant integration exposing numeric temperature entities
+- Celsius and Fahrenheit, using the entity unit or Home Assistant's configured temperature unit
+- Light and dark themes
+- Masonry dashboards and the newer Sections view
+- `prefers-reduced-motion` for users who disable animations
+
+## Development
 
 ### Prerequisites
 
 - Node.js 22.22.2+ or 24.15+ (required by Vite 8 and jsdom 30)
-- npm or yarn
+- npm
 
 ### Setup
 
@@ -123,7 +141,7 @@ git clone https://github.com/CodedCactus/hrv-card.git
 cd hrv-card
 
 # Install dependencies
-npm install
+npm ci
 ```
 
 ### Development Commands
@@ -151,6 +169,6 @@ npm run lint
 npm run test
 ```
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

@@ -2,20 +2,28 @@
   "name": "hrv-card",
   "private": true,
   "version": "0.4.0",
-  "description": "A Home Assistant Lovelace card for HRV visualization.",
+  "description": "A Home Assistant Lovelace card for visualizing Heat Recovery Ventilation (HRV/ERV) systems with animated temperature flow gradients.",
   "author": "CodedCactus",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/CodedCactus/hrv-card.git"
   },
-  "homepage": "https://github.com/CodedCactus/hrv-card",
+  "homepage": "https://github.com/CodedCactus/hrv-card#readme",
   "keywords": [
     "home-assistant",
+    "homeassistant",
     "lovelace",
-    "card",
+    "lovelace-card",
+    "hacs",
+    "custom-card",
     "hrv",
-    "ventilation"
+    "erv",
+    "heat-recovery-ventilation",
+    "ventilation",
+    "zehnder",
+    "dashboard",
+    "frontend"
   ],
   "type": "module",
   "engines": {
