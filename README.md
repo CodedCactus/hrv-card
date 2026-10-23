@@ -2,6 +2,8 @@
 
 ![Build Status](https://github.com/CodedCactus/hrv-card/workflows/Build%20and%20Publish%20HRV%20Card/badge.svg)
 ![Latest Release](https://img.shields.io/github/v/release/CodedCactus/hrv-card)
+[![HACS installs](https://img.shields.io/github/downloads/CodedCactus/hrv-card/total?label=HACS%20installs&color=41BDF5)](https://github.com/CodedCactus/hrv-card/releases)
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CodedCactus&repository=hrv-card&category=plugin)
 
 A custom Home Assistant Lovelace card for visualizing Heat Recovery Ventilation (HRV) systems with dynamic temperature flow gradients.
 
