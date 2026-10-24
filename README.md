@@ -2,7 +2,7 @@
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CodedCactus&repository=hrv-card&category=plugin)
 
-![Build Status](https://github.com/CodedCactus/hrv-card/workflows/Build%20and%20Publish%20HRV%20Card/badge.svg)
+[![Build Status](https://github.com/CodedCactus/hrv-card/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/CodedCactus/hrv-card/actions/workflows/build.yml)
 ![Latest Release](https://img.shields.io/github/v/release/CodedCactus/hrv-card)
 ![License](https://img.shields.io/github/license/CodedCactus/hrv-card)
 [![HACS installs](https://img.shields.io/github/downloads/CodedCactus/hrv-card/total?label=HACS%20installs&color=41BDF5)](https://github.com/CodedCactus/hrv-card/releases)
