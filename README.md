@@ -133,6 +133,8 @@ Each entry in `sensors` supports:
 - Node.js 22.22.2+ or 24.15+ (required by Vite 8 and jsdom 30)
 - npm
 
+> TypeScript 7 is used for `tsc`. The `typescript` package is aliased to TypeScript 6 for `typescript-eslint`, which does not yet expose the TypeScript 7 compiler API.
+
 ### Setup
 
 ```bash
